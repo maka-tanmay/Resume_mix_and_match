@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Mix & Match Formatter</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        app: {
+                            bg: '#000000',
+                            card: '#1C1C1E',
+                            cardHover: '#2C2C2E',
+                            border: '#38383A',
+                            text: '#FFFFFF',
+                            textMuted: '#8E8E93',
+                            accent: '#E5E5EA'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabaseConfig.js" type="module"></script>
+    
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background-color: #000; color: #fff; overflow: hidden; }
+        .resume-preview { font-family: 'Times New Roman', Times, serif; }
+        .resume-preview-sans { font-family: Arial, Helvetica, sans-serif; }
+        
+        /* Custom scrollbar for dark mode */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #38383A; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #48484A; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- SVG Icons ---
+        const IconDrag = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-app-textMuted cursor-grab hover:text-white transition-colors"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+        );
+        const IconPlus = ({ size = 20 }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        );
+        const IconChevronDown = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        );
+        const IconChevronUp = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+        );
+        const IconCloudCheck = () => (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+        );
+        const IconCloudSync = () => (
+            <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF9500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="6.34" y1="17.66" x2="9.17" y2="14.83"></line><line x1="14.83" y1="9.17" x2="17.66" y2="6.34"></line></svg>
+        );
+
+        // --- Initial Mock Data ---
+        const initialJobs = [
+            {
+                id: 'job-1',
+                company: 'TechNova Solutions',
+                title: 'Senior Software Engineer',
+                duration: 'Jan 2021 – Present',
+                included: true,
+                selectedVariantId: 'v1',
+                variants: [
+                    { id: 'v1', label: 'Backend Heavy', bullets: 'Architected microservices using Node.js and AWS, improving system scalability by 40%.\nOptimized database queries, reducing load times by 200ms.' },
+                    { id: 'v2', label: 'Leadership', bullets: 'Led a team of 5 engineers to deliver the core product rewrite ahead of schedule.\nMentored junior developers and established code review best practices.' }
+                ]
+            },
+            {
+                id: 'job-2',
+                company: 'DataFlow Analytics',
+                title: 'Data Analyst',
+                duration: 'Mar 2019 – Dec 2020',
+                included: true,
+                selectedVariantId: 'v1',
+                variants: [
+                    { id: 'v1', label: 'Technical', bullets: 'Developed complex SQL pipelines to aggregate daily metrics for the dashboard.\nAutomated reporting using Python and Pandas.' },
+                    { id: 'v2', label: 'Business Focus', bullets: 'Presented weekly actionable insights to stakeholders, driving a 15% increase in user retention.\nCollaborated with marketing to identify key customer segments.' }
+                ]
+            },
+            {
+                id: 'job-3',
+                company: 'WebSphere Designs',
+                title: 'Frontend Developer',
+                duration: 'Jun 2017 – Feb 2019',
+                included: false,
+                selectedVariantId: 'v1',
+                variants: [
+                    { id: 'v1', label: 'React Focus', bullets: 'Built responsive web applications using React and Redux.\nMigrated legacy jQuery codebase to modern component-based architecture.' },
+                    { id: 'v2', label: 'Design/UX', bullets: 'Implemented pixel-perfect UI designs from Figma.\nImproved accessibility scores to 100% across all pages.' }
+                ]
+            },
+            {
+                id: 'job-4',
+                company: 'Innovate Inc',
+                title: 'Product Manager',
+                duration: 'Aug 2015 – May 2017',
+                included: false,
+                selectedVariantId: 'v1',
+                variants: [
+                    { id: 'v1', label: 'Agile', bullets: 'Managed the backlog and sprint planning for 3 cross-functional teams.\nDefined product roadmap based on user feedback and market research.' },
+                    { id: 'v2', label: 'Go-to-market', bullets: 'Spearheaded the launch of 2 major features, resulting in $500k ARR increase.\nConducted competitive analysis to position the product effectively.' }
+                ]
+            },
+            {
+                id: 'job-5',
+                company: 'StartupX',
+                title: 'Software Intern',
+                duration: 'May 2014 – Aug 2014',
+                included: false,
+                selectedVariantId: 'v1',
+                variants: [
+                    { id: 'v1', label: 'General', bullets: 'Assisted in developing internal tools using Python and Flask.\nWrote unit tests to increase code coverage by 15%.' },
+                    { id: 'v2', label: 'DevOps', bullets: 'Helped set up CI/CD pipelines using Jenkins.\nCreated Dockerfiles for local development environments.' }
+                ]
+            }
+        ];
+
+        // --- Utility to generate LaTeX ---
+        const generateLatex = (personalInfo, selectedJobs) => {
+            let latex = `\\documentclass[letterpaper,11pt]{article}
+
+\\usepackage{latexsym}
+\\usepackage[empty]{fullpage}
+\\usepackage{titlesec}
+\\usepackage{marvosym}
+\\usepackage[usenames,dvipsnames]{color}
+\\usepackage{verbatim}
+\\usepackage{enumitem}
+\\usepackage[hidelinks]{hyperref}
+\\usepackage{fancyhdr}
+\\usepackage[english]{babel}
+\\usepackage{tabularx}
+\\input{glyphtounicode}
+
+\\pagestyle{fancy}
+\\fancyhf{} 
+\\fancyfoot{}
+\\renewcommand{\\headrulewidth}{0pt}
+\\renewcommand{\\footrulewidth}{0pt}
+
+\\addtolength{\\oddsidemargin}{-0.5in}
+\\addtolength{\\evensidemargin}{-0.5in}
+\\addtolength{\\textwidth}{1in}
+\\addtolength{\\topmargin}{-.5in}
+\\addtolength{\\textheight}{1.0in}
+
+\\urlstyle{same}
+\\raggedbottom
+\\raggedright
+\\setlength{\\tabcolsep}{0in}
+
+\\titleformat{\\section}{
+  \\vspace{-4pt}\\scshape\\raggedright\\large
+}{}{0em}{}[\\color{black}\\titlerule \\vspace{-5pt}]
+
+\\newcommand{\\resumeItem}[1]{
+  \\item\\small{
+    {#1 \\vspace{-2pt}}
+  }
+}
+
+\\newcommand{\\resumeSubheading}[4]{
+  \\vspace{-2pt}\\item
+    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}
+      \\textbf{#1} & #2 \\\\
+      \\textit{\\small#3} & \\textit{\\small #4} \\\\
+    \\end{tabular*}\\vspace{-7pt}
+}
+
+\\newcommand{\\resumeSubHeadingListStart}{\\begin{itemize}[leftmargin=0.15in, label={}]}
+\\newcommand{\\resumeSubHeadingListEnd}{\\end{itemize}}
+\\newcommand{\\resumeItemListStart}{\\begin{itemize}}
+\\newcommand{\\resumeItemListEnd}{\\end{itemize}\\vspace{-5pt}}
+
+\\begin{document}
+
+\\begin{center}
+    \\textbf{\\Huge \\scshape ${personalInfo.name}} \\\\ \\vspace{1pt}
+    \\small ${personalInfo.phone} $|$ \\href{mailto:${personalInfo.email}}{\\underline{${personalInfo.email}}} $|$ 
+    \\href{https://${personalInfo.linkedin}}{\\underline{${personalInfo.linkedin}}}
+\\end{center}
+
+\\section{Experience}
+  \\resumeSubHeadingListStart
+`;
+
+            selectedJobs.forEach(job => {
+                const activeVariant = job.variants.find(v => v.id === job.selectedVariantId);
+                const bullets = activeVariant ? activeVariant.bullets.split('\n') : [];
+                
+                latex += `    \\resumeSubheading
+      {${job.company}}{Location}
+      {${job.title}}{${job.duration}}
+      \\resumeItemListStart\n`;
+                
+                bullets.forEach(bullet => {
+                    if (bullet.trim()) {
+                        let cleanBullet = bullet.trim().replace(/%/g, '\\%').replace(/&/g, '\\&');
+                        latex += `        \\resumeItem{${cleanBullet}}\n`;
+                    }
+                });
+                
+                latex += `      \\resumeItemListEnd\n`;
+            });
+
+            latex += `  \\resumeSubHeadingListEnd
+\\end{document}`;
+            return latex;
+        };
+
+        const SetupSupabasePanel = ({ onConfigSaved }) => {
+            const [rawConfig, setRawConfig] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                try {
+                    const parsed = JSON.parse(rawConfig);
+                    if (!parsed.supabaseUrl || !parsed.supabaseAnonKey) {
+                        throw new Error('Missing supabaseUrl or supabaseAnonKey');
+                    }
+                    onConfigSaved(parsed);
+                } catch (err) {
+                    setError('Invalid Supabase configuration JSON.');
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-app-bg flex items-center justify-center p-6">
+                    <div className="bg-app-card border border-app-border w-full max-w-lg p-8 rounded-3xl space-y-6">
+                        <div className="space-y-2 text-center">
+                            <h2 className="text-3xl font-extrabold tracking-tight text-white">Supabase Configuration</h2>
+                            <p className="text-sm text-app-textMuted">Paste your Supabase URL and anon key JSON to enable cloud sync.</p>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <textarea
+                                required
+                                rows="6"
+                                placeholder="{\n  \"supabaseUrl\": \"https://xyz.supabase.co\",\n  \"supabaseAnonKey\": \"public-anon-key\"\n}"
+                                className="w-full bg-[#0a0a0a] border border-app-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-app-textMuted font-mono text-xs"
+                                value={rawConfig}
+                                onChange={e => { setRawConfig(e.target.value); setError(''); }}
+                            />
+                            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+                            <button type="submit" className="w-full bg-white text-black font-semibold py-3 rounded-xl hover:bg-gray-200 transition-colors">Save Configuration</button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+            const [rawConfig, setRawConfig] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                try {
+                    // Extract JSON or object configuration from string
+                    let cleanString = rawConfig.trim();
+                    // If they pasted a JS object instead of pure JSON, convert it
+                    if (cleanString.startsWith('const') || cleanString.includes('firebaseConfig =')) {
+                        const match = cleanString.match(/firebaseConfig\s*=\s*({[\s\S]*?});/);
+                        if (match && match[1]) {
+                            cleanString = match[1];
+                        }
+                    }
+                    // Replace unquoted keys with quoted keys for JS object parsing
+                    const parsedConfig = new Function(`return ${cleanString}`)();
+                    if (!parsedConfig.apiKey || !parsedConfig.projectId) {
+                        throw new Error("Missing apiKey or projectId in config.");
+                    }
+                    onConfigSaved(parsedConfig);
+                } catch (err) {
+                    setError('Invalid Firebase Configuration format. Make sure you copy and paste the firebaseConfig object.');
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-app-bg flex items-center justify-center p-6">
+                    <div className="bg-app-card border border-app-border w-full max-w-lg p-8 rounded-3xl space-y-6">
+                        <div className="space-y-2 text-center">
+                            <h2 className="text-3xl font-extrabold tracking-tight text-white">Database Setup</h2>
+                            <p className="text-sm text-app-textMuted">Paste your Firebase web application configuration to enable cloud synchronization. Your config stays locally in your browser storage.</p>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Firebase SDK Configuration</label>
+                                <textarea 
+                                    required
+                                    rows="8"
+                                    placeholder={`{\n  apiKey: "AIzaSy...",\n  authDomain: "...",\n  projectId: "...",\n  ...\n}`}
+                                    className="w-full bg-[#0a0a0a] border border-app-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-app-textMuted font-mono text-xs"
+                                    value={rawConfig}
+                                    onChange={e => { setRawConfig(e.target.value); setError(''); }}
+                                />
+                            </div>
+                            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+                            <div className="bg-[#1c1c1f] p-4 rounded-xl border border-app-border text-xs text-app-textMuted space-y-2">
+                                <p className="font-semibold text-white">How to get this:</p>
+                                <ol className="list-decimal pl-4 space-y-1">
+                                    <li>Go to the <a href="https://console.firebase.google.com" target="_blank" className="underline text-blue-400">Firebase Console</a> and create a project.</li>
+                                    <li>Add a new Web App to the project.</li>
+                                    <li>Copy the JavaScript <code className="text-white">firebaseConfig</code> object.</li>
+                                </ol>
+                            </div>
+                            <button type="submit" className="w-full bg-white text-black font-semibold py-3 rounded-xl hover:bg-gray-200 transition-colors">
+                                Save Configuration
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const AuthPanel = ({ onAuthSuccess, supabaseClient }) => {
+            const [isSignUp, setIsSignUp] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                try {
+                    if (isSignUp) {
+                        const { user, error: err } = await supabaseClient.auth.signUp({ email, password });
+                        if (err) throw err;
+                        onAuthSuccess(user);
+                    } else {
+                        const { user, error: err } = await supabaseClient.auth.signInWithPassword({ email, password });
+                        if (err) throw err;
+                        onAuthSuccess(user);
+                    }
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-app-bg flex items-center justify-center p-6">
+                    <div className="bg-app-card border border-app-border w-full max-w-md p-8 rounded-3xl space-y-6 shadow-2xl">
+                        <div className="space-y-2 text-center">
+                            <h2 className="text-3xl font-extrabold tracking-tight text-white">{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
+                            <p className="text-sm text-app-textMuted">{isSignUp ? 'Get started by creating your account' : 'Log in to sync your resume data'}</p>
+                        </div>
+                        <form onSubmit={handleAuth} className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Email Address</label>
+                                <input required type="email" placeholder="you@example.com" className="w-full bg-[#0a0a0a] border border-app-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white transition-colors" value={email} onChange={e => setEmail(e.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Password</label>
+                                <input required type="password" placeholder="••••••••" className="w-full bg-[#0a0a0a] border border-app-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white transition-colors" value={password} onChange={e => setPassword(e.target.value)} />
+                            </div>
+                            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+                            <button type="submit" disabled={loading} className="w-full bg-white text-black font-semibold py-3 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50">{loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Log In'}</button>
+                        </form>
+                        <div className="text-center pt-2">
+                            <button onClick={() => setIsSignUp(!isSignUp)} className="text-xs text-app-textMuted hover:text-white underline">{isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+            const [isSignUp, setIsSignUp] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                try {
+                    if (isSignUp) {
+                        await firebase.auth().createUserWithEmailAndPassword(email, password);
+                    } else {
+                        await firebase.auth().signInWithEmailAndPassword(email, password);
+                    }
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-app-bg flex items-center justify-center p-6">
+                    <div className="bg-app-card border border-app-border w-full max-w-md p-8 rounded-3xl space-y-6 shadow-2xl">
+                        <div className="space-y-2 text-center">
+                            <h2 className="text-3xl font-extrabold tracking-tight text-white">{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
+                            <p className="text-sm text-app-textMuted">{isSignUp ? 'Get started by creating your account' : 'Log in to sync your resume data'}</p>
+                        </div>
+                        <form onSubmit={handleAuth} className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Email Address</label>
+                                <input required type="email" placeholder="you@example.com" className="w-full bg-[#0a0a0a] border border-app-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white transition-colors" value={email} onChange={e => setEmail(e.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Password</label>
+                                <input required type="password" placeholder="••••••••" className="w-full bg-[#0a0a0a] border border-app-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white transition-colors" value={password} onChange={e => setPassword(e.target.value)} />
+                            </div>
+                            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+                            <button type="submit" disabled={loading} className="w-full bg-white text-black font-semibold py-3 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50">
+                                {loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Log In'}
+                            </button>
+                        </form>
+                        <div className="text-center pt-2">
+                            <button onClick={() => setIsSignUp(!isSignUp)} className="text-xs text-app-textMuted hover:text-white underline">
+                                {isSignUp ? 'Already have an account? Log in' : 'Don\'t have an account? Sign up'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main Dashboard Component ---
+        const Dashboard = ({ user }) => {
+            const [personalInfo, setPersonalInfo] = useState({
+                name: "Jane Doe",
+                email: "jane@example.com",
+                phone: "(555) 123-4567",
+                linkedin: "linkedin.com/in/janedoe"
+            });
+            const [jobs, setJobs] = useState(initialJobs);
+            const [draggedJobId, setDraggedJobId] = useState(null);
+            const [syncStatus, setSyncStatus] = useState('synced'); // 'synced' | 'saving' | 'error'
+
+            // Form states
+            const [isAddingJob, setIsAddingJob] = useState(false);
+            const [newJob, setNewJob] = useState({ company: '', title: '', duration: '', bullets: '' });
+            const [addingVariantToId, setAddingVariantToId] = useState(null);
+            const [newVariant, setNewVariant] = useState({ label: '', bullets: '' });
+            const [expandedJobs, setExpandedJobs] = useState(initialJobs.map(j => j.id));
+
+            const supabase = supabaseClient;
+            const { data, error } = await supabase.from('profiles').select('*').eq('uid', user.uid).single();
+            if (data) {
+                if (data.personalInfo) setPersonalInfo(data.personalInfo);
+                if (data.jobs) setJobs(data.jobs);
+                if (data.jobs) setExpandedJobs(data.jobs.map(j => j.id));
+            } else {
+                // Initialize Database for new user
+                await supabase.from('profiles').upsert({ uid: user.uid, personalInfo, jobs });
+            }
+
+            // Fetch Data from Firestore
+            useEffect(() => {
+                const loadData = async () => {
+                    try {
+                        const doc = await docRef.get();
+                        if (doc.exists) {
+                            const data = doc.data();
+                            if (data.personalInfo) setPersonalInfo(data.personalInfo);
+                            if (data.jobs) setJobs(data.jobs);
+                            if (data.jobs) setExpandedJobs(data.jobs.map(j => j.id));
+                        } else {
+                            // Initialize Database for new user
+                            await docRef.set({ personalInfo, jobs });
+                        }
+                    } catch (error) {
+                        console.error("Error loading document:", error);
+                        setSyncStatus('error');
+                    } finally {
+                        initialLoad.current = false;
+                    }
+                };
+                loadData();
+            }, [user.uid]);
+
+            // Save Data to Firestore on Change
+            useEffect(() => {
+                if (initialLoad.current) return;
+                setSyncStatus('saving');
+                const saveTimeout = setTimeout(async () => {
+                    try {
+                        await docRef.set({ personalInfo, jobs });
+                        setSyncStatus('synced');
+                    } catch (error) {
+                        console.error("Error saving document:", error);
+                        setSyncStatus('error');
+                    }
+                }, 1000); // Debounce database updates by 1 second
+
+                return () => clearTimeout(saveTimeout);
+            }, [personalInfo, jobs]);
+
+            // Handlers
+            const toggleJobInclusion = (id) => {
+                setJobs(jobs.map(j => j.id === id ? { ...j, included: !j.included } : j));
+            };
+
+            const selectVariant = (jobId, variantId) => {
+                setJobs(jobs.map(j => j.id === jobId ? { ...j, selectedVariantId: variantId } : j));
+            };
+
+            const toggleJobExpansion = (id) => {
+                if (expandedJobs.includes(id)) {
+                    setExpandedJobs(expandedJobs.filter(jid => jid !== id));
+                } else {
+                    setExpandedJobs([...expandedJobs, id]);
+                }
+            };
+
+            // Drag and drop handlers
+            const handleDragStart = (e, id) => {
+                setDraggedJobId(id);
+                setTimeout(() => {
+                    e.target.style.opacity = '0.5';
+                }, 0);
+            };
+
+            const handleDragEnd = (e) => {
+                e.target.style.opacity = '1';
+                setDraggedJobId(null);
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+            };
+
+            const handleDrop = (e, targetId) => {
+                e.preventDefault();
+                if (!draggedJobId || draggedJobId === targetId) return;
+
+                const draggedIndex = jobs.findIndex(j => j.id === draggedJobId);
+                const targetIndex = jobs.findIndex(j => j.id === targetId);
+
+                const newJobs = [...jobs];
+                const [draggedItem] = newJobs.splice(draggedIndex, 1);
+                newJobs.splice(targetIndex, 0, draggedItem);
+
+                setJobs(newJobs);
+            };
+
+            // Add Job
+            const handleAddJobSubmit = (e) => {
+                e.preventDefault();
+                const newId = 'job-' + Date.now();
+                const vId = 'v1-' + Date.now();
+                const createdJob = {
+                    id: newId,
+                    company: newJob.company,
+                    title: newJob.title,
+                    duration: newJob.duration,
+                    included: true,
+                    selectedVariantId: vId,
+                    variants: [
+                        { id: vId, label: 'Default', bullets: newJob.bullets }
+                    ]
+                };
+                setJobs([createdJob, ...jobs]);
+                setExpandedJobs([...expandedJobs, newId]);
+                setIsAddingJob(false);
+                setNewJob({ company: '', title: '', duration: '', bullets: '' });
+            };
+
+            // Add Variant
+            const handleAddVariantSubmit = (e, jobId) => {
+                e.preventDefault();
+                const newVId = 'v-' + Date.now();
+                const addedVariant = { id: newVId, label: newVariant.label, bullets: newVariant.bullets };
+                setJobs(jobs.map(j => {
+                    if (j.id === jobId) {
+                        return { ...j, variants: [...j.variants, addedVariant], selectedVariantId: newVId };
+                    }
+                    return j;
+                }));
+                setAddingVariantToId(null);
+                setNewVariant({ label: '', bullets: '' });
+            };
+
+            // Export LaTeX
+            const handleCopyLatex = () => {
+                const selectedJobs = jobs.filter(j => j.included);
+                const latexStr = generateLatex(personalInfo, selectedJobs);
+                navigator.clipboard.writeText(latexStr).then(() => {
+                    alert("LaTeX copied to clipboard!");
+                }).catch(err => {
+                    alert("Failed to copy LaTeX: " + err);
+                });
+            };
+
+            const selectedJobs = jobs.filter(j => j.included);
+
+            return (
+                <div className="flex h-screen w-full bg-app-bg text-app-text overflow-hidden">
+                    
+                    {/* LEFT SIDEBAR */}
+                    <div className="w-[450px] flex flex-col border-r border-app-border h-full bg-[#0a0a0a]">
+                        <div className="p-6 pb-4 border-b border-app-border flex justify-between items-center bg-[#0a0a0a] z-10">
+                            <div>
+                                <h1 className="text-2xl font-bold tracking-tight text-white">Experience Library</h1>
+                                <p className="text-sm text-app-textMuted mt-1">Mix and match job history</p>
+                            </div>
+                            <button 
+                                onClick={() => setIsAddingJob(!isAddingJob)}
+                                className="w-10 h-10 rounded-full bg-app-card hover:bg-app-cardHover flex items-center justify-center transition-colors border border-app-border shadow-sm"
+                            >
+                                <IconPlus />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                            
+                            {/* Add Job Form */}
+                            {isAddingJob && (
+                                <div className="bg-app-card border border-app-border p-4 rounded-2xl animate-[fadeIn_0.2s_ease-out]">
+                                    <h3 className="font-semibold text-lg mb-3">Add Experience</h3>
+                                    <form onSubmit={handleAddJobSubmit} className="space-y-3">
+                                        <input required placeholder="Company Name" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted" value={newJob.company} onChange={e => setNewJob({...newJob, company: e.target.value})} />
+                                        <input required placeholder="Job Title" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted" value={newJob.title} onChange={e => setNewJob({...newJob, title: e.target.value})} />
+                                        <input required placeholder="Duration (e.g. Jan 2021 - Mar 2023)" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted" value={newJob.duration} onChange={e => setNewJob({...newJob, duration: e.target.value})} />
+                                        <textarea required placeholder="Bullet points (one per line)" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted h-24" value={newJob.bullets} onChange={e => setNewJob({...newJob, bullets: e.target.value})} />
+                                        <div className="flex justify-end space-x-2 pt-2">
+                                            <button type="button" onClick={() => setIsAddingJob(false)} className="px-4 py-2 text-sm rounded-lg hover:bg-[#38383a]">Cancel</button>
+                                            <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-white text-black font-medium hover:bg-gray-200">Save</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            )}
+
+                            {/* Job List */}
+                            {jobs.map(job => {
+                                const isExpanded = expandedJobs.includes(job.id);
+                                const activeVariant = job.variants.find(v => v.id === job.selectedVariantId);
+                                const firstBullet = activeVariant ? activeVariant.bullets.split('\n')[0] : '';
+                                
+                                return (
+                                    <div 
+                                        key={job.id} 
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, job.id)}
+                                        onDragEnd={handleDragEnd}
+                                        onDragOver={handleDragOver}
+                                        onDrop={(e) => handleDrop(e, job.id)}
+                                        className={`bg-app-card border rounded-2xl transition-all duration-200 ${job.included ? 'border-app-accent/50 shadow-md' : 'border-app-border opacity-70'} ${draggedJobId === job.id ? 'opacity-50' : ''}`}
+                                    >
+                                        {/* Card Header */}
+                                        <div className="p-4 flex items-start gap-3">
+                                            <div className="mt-1 cursor-grab active:cursor-grabbing">
+                                                <IconDrag />
+                                            </div>
+                                            <div className="pt-1">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={job.included} 
+                                                    onChange={() => toggleJobInclusion(job.id)}
+                                                    className="w-5 h-5 rounded accent-white border-app-border cursor-pointer"
+                                                />
+                                            </div>
+                                            <div className="flex-1 cursor-pointer select-none" onClick={() => toggleJobExpansion(job.id)}>
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h3 className={`font-semibold text-lg ${job.included ? 'text-white' : 'text-app-textMuted'}`}>{job.company}</h3>
+                                                        <p className="text-sm text-app-textMuted">{job.title} &bull; {job.duration}</p>
+                                                    </div>
+                                                    <div className="text-app-textMuted">
+                                                        {isExpanded ? <IconChevronUp /> : <IconChevronDown />}
+                                                    </div>
+                                                </div>
+                                                {!isExpanded && activeVariant && (
+                                                    <p className="text-sm text-app-textMuted mt-2 line-clamp-1 italic">
+                                                        "{firstBullet}"
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Card Expanded Content */}
+                                        {isExpanded && (
+                                            <div className="p-4 pt-0 border-t border-app-border/50 mt-2">
+                                                <div className="mt-4 flex items-center justify-between">
+                                                    <span className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Variants</span>
+                                                    <button 
+                                                        onClick={() => setAddingVariantToId(addingVariantToId === job.id ? null : job.id)}
+                                                        className="text-xs flex items-center gap-1 text-app-text hover:text-white"
+                                                    >
+                                                        <IconPlus size={14} /> Add Variant
+                                                    </button>
+                                                </div>
+
+                                                {/* Variant List */}
+                                                <div className="mt-3 space-y-2">
+                                                    {job.variants.map(variant => (
+                                                        <div 
+                                                            key={variant.id} 
+                                                            onClick={() => selectVariant(job.id, variant.id)}
+                                                            className={`p-3 rounded-xl border cursor-pointer transition-colors ${job.selectedVariantId === variant.id ? 'bg-[#2C2C2E] border-app-accent/30' : 'bg-[#0a0a0a] border-app-border hover:border-app-textMuted/50'}`}
+                                                        >
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <input 
+                                                                    type="radio" 
+                                                                    checked={job.selectedVariantId === variant.id} 
+                                                                    onChange={() => selectVariant(job.id, variant.id)}
+                                                                    className="accent-white cursor-pointer"
+                                                                />
+                                                                <span className="font-medium text-sm">{variant.label}</span>
+                                                            </div>
+                                                            <ul className="text-xs text-app-textMuted space-y-1 list-disc pl-5">
+                                                                {variant.bullets.split('\n').map((bullet, i) => bullet.trim() && (
+                                                                    <li key={i}>{bullet}</li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                {/* Add Variant Form */}
+                                                {addingVariantToId === job.id && (
+                                                    <form onSubmit={(e) => handleAddVariantSubmit(e, job.id)} className="mt-3 p-3 bg-[#0a0a0a] rounded-xl border border-app-border">
+                                                        <input required placeholder="Variant Label (e.g. Backend Focus)" className="w-full bg-transparent border-b border-app-border px-2 py-1 mb-2 text-sm focus:outline-none" value={newVariant.label} onChange={e => setNewVariant({...newVariant, label: e.target.value})} />
+                                                        <textarea required placeholder="Bullet points (one per line)" className="w-full bg-transparent border border-app-border rounded px-2 py-1 text-sm focus:outline-none h-20" value={newVariant.bullets} onChange={e => setNewVariant({...newVariant, bullets: e.target.value})} />
+                                                        <div className="flex justify-end gap-2 mt-2">
+                                                            <button type="button" onClick={() => setAddingVariantToId(null)} className="text-xs px-3 py-1 rounded hover:bg-[#38383a]">Cancel</button>
+                                                            <button type="submit" className="text-xs px-3 py-1 rounded bg-white text-black font-medium hover:bg-gray-200">Save</button>
+                                                        </div>
+                                                    </form>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        {/* User Profile Bar */}
+                        <div className="p-4 border-t border-app-border bg-[#0a0a0a] flex items-center justify-between">
+                            <div className="flex flex-col truncate pr-2">
+                                <span className="text-xs text-app-textMuted">Logged in as</span>
+                                <span className="text-sm text-white truncate font-medium">{user.email}</span>
+                            </div>
+                            <button 
+                                onClick={() => firebase.auth().signOut()} 
+                                className="text-xs bg-[#1C1C1E] border border-app-border hover:bg-red-950 hover:text-red-300 hover:border-red-900/50 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                            >
+                                Sign Out
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* RIGHT PREVIEW PANEL */}
+                    <div className="flex-1 flex flex-col bg-[#111111] relative">
+                        {/* Upper Utility Header */}
+                        <div className="absolute top-6 left-6 z-10 flex items-center gap-2 bg-[#1C1C1E] border border-app-border px-3 py-1.5 rounded-full text-xs">
+                            {syncStatus === 'synced' && (
+                                <>
+                                    <IconCloudCheck />
+                                    <span className="text-app-textMuted">Cloud Synced</span>
+                                </>
+                            )}
+                            {syncStatus === 'saving' && (
+                                <>
+                                    <IconCloudSync />
+                                    <span className="text-orange-400">Saving changes...</span>
+                                </>
+                            )}
+                            {syncStatus === 'error' && (
+                                <span className="text-red-500">Sync Error</span>
+                            )}
+                        </div>
+
+                        <div className="absolute top-6 right-6 z-10 flex gap-3">
+                            <button 
+                                onClick={handleCopyLatex}
+                                className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg flex items-center gap-2 transition-transform active:scale-95"
+                            >
+                                Copy as LaTeX
+                            </button>
+                        </div>
+                        
+                        {/* Live Resume Sheet container */}
+                        <div className="flex-1 overflow-y-auto p-12 flex justify-center items-start">
+                            {/* A4 Size Paper approx ratio */}
+                            <div className="bg-white text-black w-full max-w-[850px] min-h-[1100px] shadow-2xl p-12 resume-preview relative">
+                                
+                                {/* Header (Editable) */}
+                                <div className="text-center mb-6 border-b-2 border-black pb-4">
+                                    <input 
+                                        className="text-4xl font-bold uppercase w-full text-center outline-none bg-transparent hover:bg-gray-100 transition-colors" 
+                                        value={personalInfo.name} 
+                                        onChange={(e) => setPersonalInfo({...personalInfo, name: e.target.value})}
+                                    />
+                                    <div className="flex justify-center items-center gap-2 mt-2 text-sm resume-preview-sans">
+                                        <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-32" value={personalInfo.phone} onChange={(e) => setPersonalInfo({...personalInfo, phone: e.target.value})} />
+                                        <span>|</span>
+                                        <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-48 text-blue-800 underline" value={personalInfo.email} onChange={(e) => setPersonalInfo({...personalInfo, email: e.target.value})} />
+                                        <span>|</span>
+                                        <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-56 text-blue-800 underline" value={personalInfo.linkedin} onChange={(e) => setPersonalInfo({...personalInfo, linkedin: e.target.value})} />
+                                    </div>
+                                </div>
+
+                                {/* Experience Section */}
+                                <div>
+                                    <h2 className="text-xl font-bold uppercase border-b border-black mb-3">Experience</h2>
+                                    
+                                    <div className="space-y-4">
+                                        {selectedJobs.map(job => {
+                                            const activeVariant = job.variants.find(v => v.id === job.selectedVariantId);
+                                            const bullets = activeVariant ? activeVariant.bullets.split('\n') : [];
+
+                                            return (
+                                                <div key={'prev-'+job.id}>
+                                                    <div className="flex justify-between items-end mb-1">
+                                                        <h3 className="font-bold text-lg leading-tight">{job.company}</h3>
+                                                        <span className="italic text-sm">{job.duration}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <p className="italic text-md">{job.title}</p>
+                                                    </div>
+                                                    <ul className="list-disc pl-5 resume-preview-sans text-sm space-y-1">
+                                                        {bullets.map((bullet, i) => bullet.trim() && (
+                                                            <li key={i}>{bullet}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )
+                                        })}
+                                        
+                                        {selectedJobs.length === 0 && (
+                                            <p className="text-gray-500 italic text-center py-10">Select jobs from the sidebar to populate the resume.</p>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            );
+        };
+
+        // --- Core Entry Component ---
+        const App = () => {
+            const [fbConfig, setFbConfig] = useState(() => {
+                const saved = localStorage.getItem('firebase_config');
+                return saved ? JSON.parse(saved) : null;
+            });
+            const [user, setUser] = useState(null);
+            const [loadingAuth, setLoadingAuth] = useState(true);
+
+            // Initialize Firebase if config is present
+            useEffect(() => {
+                if (fbConfig) {
+                    try {
+                        if (!firebase.apps.length) {
+                            firebase.initializeApp(fbConfig);
+                        }
+                        const unsubscribe = firebase.auth().onAuthStateChanged(usr => {
+                            setUser(usr);
+                            setLoadingAuth(false);
+                        });
+                        return () => unsubscribe();
+                    } catch (error) {
+                        console.error("Firebase Initialization Error:", error);
+                        // Config failed, clear it to let user re-enter
+                        localStorage.removeItem('firebase_config');
+                        setFbConfig(null);
+                        setLoadingAuth(false);
+                    }
+                } else {
+                    setLoadingAuth(false);
+                }
+            }, [fbConfig]);
+
+            const handleConfigSaved = (config) => {
+                localStorage.setItem('firebase_config', JSON.stringify(config));
+                setFbConfig(config);
+                setLoadingAuth(true); // Restart auth flow with new config
+            };
+
+            // Loading screen while verifying auth
+            if (loadingAuth) {
+                return (
+                    <div className="min-h-screen bg-app-bg flex items-center justify-center">
+                        <div className="text-center space-y-3">
+                            <IconCloudSync />
+                            <p className="text-sm text-app-textMuted">Initializing secure database...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Stage 1: Firebase Config Input
+            if (!fbConfig) {
+                return <SetupFirebasePanel onConfigSaved={handleConfigSaved} />;
+            }
+
+            // Stage 2: User Authentication
+            if (!user) {
+                return <AuthPanel onAuthSuccess={(usr) => setUser(usr)} />;
+            }
+
+            // Stage 3: Authenticated App
+            return <Dashboard user={user} />;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

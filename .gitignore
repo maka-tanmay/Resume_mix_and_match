@@ -1,0 +1,8 @@
+# Gitignore entries for Supabase configuration and environment variables
+# Supabase client configuration (should contain your supabaseUrl and supabaseAnonKey)
+supabaseConfig.js
+
+# Environment variable files (if used)
+.env
+.env.local
+.env.production
