@@ -1,0 +1,58 @@
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background-color: #000;
+    color: #fff;
+    overflow: hidden;
+}
+
+.resume-preview {
+    font-family: "Times New Roman", Times, serif;
+}
+
+.resume-preview-sans {
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #38383a;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #48484a;
+}
+
+@media print {
+    body {
+        background: #fff;
+        overflow: visible;
+    }
+
+    body * {
+        visibility: hidden;
+    }
+
+    .resume-preview,
+    .resume-preview * {
+        visibility: visible;
+    }
+
+    .resume-preview {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        max-width: none;
+        min-height: auto;
+        box-shadow: none;
+        padding: 0.5in;
+    }
+}
