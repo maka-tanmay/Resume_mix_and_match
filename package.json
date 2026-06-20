@@ -1,0 +1,26 @@
+{
+  "name": "resume_mix_and_match",
+  "version": "1.0.0",
+  "description": "The **Resume Mix & Match Formatter** is a single‑page web application that lets users build and customize professional resumes by selecting, ordering, and styling job experiences. It provides:",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "serve -s . -l 3000",
+    "dev": "serve -s . -l 3000",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maka-tanmay/Resume_mix_and_match.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/maka-tanmay/Resume_mix_and_match/issues"
+  },
+  "homepage": "https://github.com/maka-tanmay/Resume_mix_and_match#readme"
+}
