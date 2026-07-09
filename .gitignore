@@ -6,3 +6,7 @@ supabaseConfig.js
 .env
 .env.local
 .env.production
+
+# Local tooling configuration
+.claude/
+node_modules/

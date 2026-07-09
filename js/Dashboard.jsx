@@ -21,7 +21,7 @@ const syncStructuredResumeFromEditor = (resumeState, personalInfo, jobs) => {
             phone: personalInfo.phone,
             linkedin: personalInfo.linkedin,
         },
-        experience: jobs.map((job) => {
+        experience: jobs.filter((job) => job.included).map((job) => {
             const activeVariant = job.variants.find((variant) => variant.id === job.selectedVariantId);
             return {
                 title: job.title,
@@ -34,25 +34,37 @@ const syncStructuredResumeFromEditor = (resumeState, personalInfo, jobs) => {
     };
 };
 
+// Mirrors the Jake's Resume template layout: small-caps ruled section titles,
+// bold title / italic organization rows, and the same section order as the
+// generated LaTeX so the preview matches the compiled PDF.
 const StructuredResumePreview = ({ resume }) => {
-    const section = (title, children, show = true) => show && (
+    const section = (title, children, show = true) => (show ? (
         <div className="mb-4">
-            <h2 className="text-xl font-bold uppercase border-b border-black mb-3">{title}</h2>
+            <h2 className="text-xl resume-caps border-b border-black mb-2">{title}</h2>
             {children}
         </div>
-    );
+    ) : null);
 
     const entryBlock = (entry, index, isProject = false) => (
         <div key={index} className="mb-3">
             <div className="flex justify-between items-end mb-1">
-                <h3 className="font-bold text-lg leading-tight">{isProject ? entry.name : (entry.company || entry.organization || entry.title)}</h3>
+                {isProject ? (
+                    <h3 className="text-md leading-tight">
+                        <span className="font-bold">{entry.name}</span>
+                        {(entry.technologies || []).length > 0 && <span className="italic"> | {entry.technologies.join(", ")}</span>}
+                    </h3>
+                ) : (
+                    <h3 className="font-bold text-md leading-tight">{entry.title}</h3>
+                )}
                 <span className="italic text-sm">{entry.dates}</span>
             </div>
-            <div className="flex justify-between items-start mb-1">
-                <p className="italic text-md">{isProject ? (entry.technologies || []).join(", ") : entry.title}</p>
-                <p className="italic text-sm">{entry.location}</p>
-            </div>
-            <ul className="list-disc pl-5 resume-preview-sans text-sm space-y-1">
+            {!isProject && (entry.company || entry.organization || entry.location) && (
+                <div className="flex justify-between items-start mb-1 text-sm italic">
+                    <p>{entry.company || entry.organization || ""}</p>
+                    <p>{entry.location}</p>
+                </div>
+            )}
+            <ul className="list-disc pl-5 text-sm space-y-1">
                 {(entry.bullets || []).map((bullet, bulletIndex) => <li key={bulletIndex}>{bullet}</li>)}
             </ul>
         </div>
@@ -60,28 +72,28 @@ const StructuredResumePreview = ({ resume }) => {
 
     return (
         <>
-            <div className="text-center mb-6 border-b-2 border-black pb-4">
-                <h1 className="text-4xl font-bold uppercase">{resume.basics?.name}</h1>
-                <div className="flex justify-center items-center gap-2 mt-2 text-sm resume-preview-sans flex-wrap">
+            <div className="text-center mb-6">
+                <h1 className="text-4xl font-bold resume-caps">{resume.basics?.name}</h1>
+                <div className="flex justify-center items-center gap-2 mt-1 text-sm flex-wrap">
                     {[resume.basics?.phone, resume.basics?.email, resume.basics?.linkedin, resume.basics?.github, resume.basics?.portfolio].filter(Boolean).map((item, index) => (
                         <React.Fragment key={item}>
                             {index > 0 && <span>|</span>}
-                            <span className={item.includes("@") || item.includes(".com") ? "text-blue-800 underline" : ""}>{item}</span>
+                            <span className={item.includes("@") || item.includes(".") ? "underline" : ""}>{item}</span>
                         </React.Fragment>
                     ))}
                 </div>
             </div>
             {section("Education", <div>{(resume.education || []).map((item, index) => (
                 <div key={index} className="mb-2">
-                    <div className="flex justify-between"><strong>{item.school}</strong><span className="italic text-sm">{item.dates}</span></div>
-                    <div className="flex justify-between italic"><span>{item.degree}</span><span>{item.location}</span></div>
+                    <div className="flex justify-between"><strong>{item.school}</strong><span className="text-sm">{item.location}</span></div>
+                    <div className="flex justify-between italic text-sm"><span>{item.degree}</span><span>{item.dates}</span></div>
                 </div>
             ))}</div>, resume.education?.length)}
-            {section("Technical Skills", <div className="resume-preview-sans text-sm space-y-1">{(resume.skills || []).map((skill, index) => <p key={index}><strong>{skill.category}:</strong> {(skill.items || []).join(", ")}</p>)}</div>, resume.skills?.length)}
             {section("Experience", <div>{(resume.experience || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.experience?.length)}
             {section("Projects", <div>{(resume.projects || []).map((entry, index) => entryBlock(entry, index, true))}</div>, resume.projects?.length)}
             {section("Research", <div>{(resume.research || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.research?.length)}
             {section("Leadership", <div>{(resume.leadership || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.leadership?.length)}
+            {section("Technical Skills", <div className="text-sm space-y-1">{(resume.skills || []).map((skill, index) => <p key={index}><strong>{skill.category}:</strong> {(skill.items || []).join(", ")}</p>)}</div>, resume.skills?.length)}
         </>
     );
 };
@@ -477,19 +489,19 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                             <StructuredResumePreview resume={syncStructuredResumeFromEditor(resumeState, personalInfo, jobs)} />
                         ) : (
                         <>
-                            <div className="text-center mb-6 border-b-2 border-black pb-4">
-                            <input className="text-4xl font-bold uppercase w-full text-center outline-none bg-transparent hover:bg-gray-100 transition-colors" value={personalInfo.name} onChange={(event) => setPersonalInfo({ ...personalInfo, name: event.target.value })} />
-                            <div className="flex justify-center items-center gap-2 mt-2 text-sm resume-preview-sans">
+                            <div className="text-center mb-6">
+                            <input className="text-4xl font-bold resume-caps w-full text-center outline-none bg-transparent hover:bg-gray-100 transition-colors" value={personalInfo.name} onChange={(event) => setPersonalInfo({ ...personalInfo, name: event.target.value })} />
+                            <div className="flex justify-center items-center gap-2 mt-1 text-sm">
                                 <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-32" value={personalInfo.phone} onChange={(event) => setPersonalInfo({ ...personalInfo, phone: event.target.value })} />
                                 <span>|</span>
-                                <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-48 text-blue-800 underline" value={personalInfo.email} onChange={(event) => setPersonalInfo({ ...personalInfo, email: event.target.value })} />
+                                <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-48 underline" value={personalInfo.email} onChange={(event) => setPersonalInfo({ ...personalInfo, email: event.target.value })} />
                                 <span>|</span>
-                                <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-56 text-blue-800 underline" value={personalInfo.linkedin} onChange={(event) => setPersonalInfo({ ...personalInfo, linkedin: event.target.value })} />
+                                <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-56 underline" value={personalInfo.linkedin} onChange={(event) => setPersonalInfo({ ...personalInfo, linkedin: event.target.value })} />
                             </div>
                         </div>
 
                         <div>
-                            <h2 className="text-xl font-bold uppercase border-b border-black mb-3">Experience</h2>
+                            <h2 className="text-xl resume-caps border-b border-black mb-2">Experience</h2>
                             <div className="space-y-4">
                                 {selectedJobs.map((job) => {
                                     const activeVariant = job.variants.find((variant) => variant.id === job.selectedVariantId);
@@ -498,13 +510,13 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                                     return (
                                         <div key={`prev-${job.id}`}>
                                             <div className="flex justify-between items-end mb-1">
-                                                <h3 className="font-bold text-lg leading-tight">{job.company}</h3>
+                                                <h3 className="font-bold text-md leading-tight">{job.title}</h3>
                                                 <span className="italic text-sm">{job.duration}</span>
                                             </div>
                                             <div className="flex justify-between items-start mb-1">
-                                                <p className="italic text-md">{job.title}</p>
+                                                <p className="italic text-sm">{job.company}</p>
                                             </div>
-                                            <ul className="list-disc pl-5 resume-preview-sans text-sm space-y-1">
+                                            <ul className="list-disc pl-5 text-sm space-y-1">
                                                 {bullets.map((bullet, index) => bullet.trim() && <li key={index}>{bullet}</li>)}
                                             </ul>
                                         </div>

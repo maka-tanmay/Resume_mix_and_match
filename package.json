@@ -7,9 +7,9 @@
     "test": "tests"
   },
   "scripts": {
-    "start": "serve -s . -l 3000",
-    "dev": "serve -s . -l 3000",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "npx --yes serve -l 3000 .",
+    "dev": "npx --yes serve -l 3000 .",
+    "test": "node tests/parser.test.js && node tests/latex.test.js"
   },
   "repository": {
     "type": "git",

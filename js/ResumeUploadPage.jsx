@@ -48,8 +48,16 @@ const ResumeUploadPage = ({ user, onResumeReady, onSignOut }) => {
         }
     };
 
-    const handleStartFromSample = () => {
-        onResumeReady({ personalInfo: defaultPersonalInfo, jobs: initialJobs });
+    const handleStartFromSample = async () => {
+        setError("");
+        setLoading(true);
+        try {
+            await onResumeReady({ personalInfo: defaultPersonalInfo, jobs: initialJobs });
+        } catch (sampleError) {
+            setError(sampleError.message || "Could not save the sample resume.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -97,7 +105,7 @@ const ResumeUploadPage = ({ user, onResumeReady, onSignOut }) => {
                         <h2 className="font-semibold">No resume file ready?</h2>
                         <p className="text-sm text-app-textMuted mt-1">Start from the sample resume and replace it with your own content.</p>
                     </div>
-                    <button onClick={handleStartFromSample} className="bg-app-card border border-app-border hover:bg-app-cardHover text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors">
+                    <button onClick={handleStartFromSample} disabled={loading} className="bg-app-card border border-app-border hover:bg-app-cardHover text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
                         Start with Sample
                     </button>
                 </div>

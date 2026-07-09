@@ -115,9 +115,19 @@ using (auth.uid() = uid);
 Serve the folder with a lightweight static server so the browser can load the split JavaScript and JSX files:
 
 ```bash
-# Using Python (built‑in)
+# Using npm (requires Node.js)
+npm start
+# Then open http://localhost:3000 in your browser
+
+# Or using Python (built‑in)
 python -m http.server 8000
 # Then open http://localhost:8000 in your browser
+```
+
+### Run the tests
+
+```bash
+npm test
 ```
 
 When the app opens, paste the Supabase project URL and anon public key. The app stores these values in local browser storage.

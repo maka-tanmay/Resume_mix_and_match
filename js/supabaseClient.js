@@ -53,11 +53,5 @@ const createSupabaseClient = (config) => {
             detectSessionInUrl: true,
             persistSession: true,
         },
-        global: {
-            headers: {
-                apikey: normalizedConfig.supabaseAnonKey,
-                Authorization: `Bearer ${normalizedConfig.supabaseAnonKey}`,
-            },
-        },
     });
 };

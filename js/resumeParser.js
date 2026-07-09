@@ -323,12 +323,13 @@ const parseExperienceLike = (lines, type) => {
 
         const firstLine = lines[index]?.text || "";
         const secondLine = lines[index + 1]?.text || "";
-        const dates = extractDates(firstLine) || extractDates(secondLine);
+        const hasSecondHeaderLine = Boolean(secondLine) && !BULLET_PATTERN.test(secondLine);
+        const dates = extractDates(firstLine) || (hasSecondHeaderLine ? extractDates(secondLine) : "");
         const firstNoDates = removeDates(firstLine);
-        const secondNoDates = removeDates(secondLine);
+        const secondNoDates = hasSecondHeaderLine ? removeDates(secondLine) : "";
         const firstSplit = splitLocation(firstNoDates);
         const secondSplit = splitLocation(secondNoDates);
-        const bulletStart = index + (secondLine && !BULLET_PATTERN.test(secondLine) ? 2 : 1);
+        const bulletStart = index + (hasSecondHeaderLine ? 2 : 1);
         const { bullets, nextIndex } = collectBullets(lines, bulletStart);
 
         if (type === "projects") {
@@ -354,7 +355,8 @@ const parseExperienceLike = (lines, type) => {
         index = Math.max(nextIndex, index + 1);
     }
 
-    return entries.filter((entry) => Object.values(entry).some((value) => Array.isArray(value) ? value.length : value));
+    return entries.filter((entry) =>
+        entry.bullets.length || entry.dates || (type === "projects" ? entry.name : entry.title || entry.company));
 };
 
 const parseEducation = (lines) => {

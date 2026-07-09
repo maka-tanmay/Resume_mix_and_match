@@ -6,10 +6,17 @@ body {
     overflow: hidden;
 }
 
+/* Match the Computer Modern font that the Jake's Resume LaTeX template produces,
+   so the on-screen preview looks like the compiled PDF. */
 .resume-preview {
-    font-family: "Times New Roman", Times, serif;
+    font-family: "CMU Serif", Georgia, "Times New Roman", Times, serif;
 }
 
+.resume-caps {
+    font-variant: small-caps;
+}
+
+/* Kept for the "Original" upload preview and debug panel only. */
 .resume-preview-sans {
     font-family: Arial, Helvetica, sans-serif;
 }
