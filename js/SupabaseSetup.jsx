@@ -1,4 +1,4 @@
-const SupabaseSetup = ({ initialError, onConfigSaved, onLocalMode }) => {
+const SupabaseSetup = ({ initialError, onConfigSaved, onLocalMode, onUseHosted, usingOverride }) => {
     const [supabaseUrl, setSupabaseUrl] = React.useState("");
     const [supabaseAnonKey, setSupabaseAnonKey] = React.useState("");
     const [error, setError] = React.useState(initialError || "");
@@ -33,8 +33,11 @@ const SupabaseSetup = ({ initialError, onConfigSaved, onLocalMode }) => {
         <div className="min-h-screen bg-app-bg flex items-center justify-center p-6">
             <div className="bg-app-card border border-app-border w-full max-w-lg p-8 rounded-2xl space-y-6 shadow-2xl">
                 <div className="space-y-2">
-                    <h1 className="text-3xl font-extrabold tracking-tight text-white">Connect Supabase</h1>
-                    <p className="text-sm text-app-textMuted">Enter your project URL and anon public key to enable authentication.</p>
+                    <h1 className="text-3xl font-extrabold tracking-tight text-white">Use your own Supabase</h1>
+                    <p className="text-sm text-app-textMuted">
+                        For self-hosting only — the app already ships with a hosted backend.
+                        Point it at your own project by entering its URL and anon/publishable key.
+                    </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -74,6 +77,16 @@ const SupabaseSetup = ({ initialError, onConfigSaved, onLocalMode }) => {
                         Save and Continue
                     </button>
                 </form>
+
+                {onUseHosted && (
+                    <button
+                        type="button"
+                        onClick={onUseHosted}
+                        className="w-full bg-[#0a0a0a] border border-app-border text-white font-medium py-2.5 rounded-xl hover:bg-app-cardHover transition-colors text-sm"
+                    >
+                        {usingOverride ? "Remove override and use the hosted backend" : "← Back to the hosted backend"}
+                    </button>
+                )}
 
                 <div className="flex items-center gap-3">
                     <div className="flex-1 border-t border-app-border"></div>

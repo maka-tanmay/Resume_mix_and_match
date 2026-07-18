@@ -67,8 +67,10 @@ Current export support includes LaTeX source, HTML, Word-compatible `.doc`, and 
 
 ### Prerequisites
 
-- A modern web browser (Chrome, Firefox, Safari, Edge).
-- Optional: a Supabase project with Google authentication enabled. Without one, use **Continue without an account** on the first screen (data is stored in the browser only).
+- A modern web browser (Chrome, Firefox, Safari, Edge). Nothing else — the app ships with a hosted Supabase backend, so there is no configuration step.
+- On first open you choose: **Continue with Google**, **Email me a sign-in link** (magic link, no password), or **Try without an account** (local-only mode; data stays in the browser).
+
+> The Supabase anon key in `js/config.js` is public by design — it only grants what Row Level Security policies allow, and each user can only read/write their own row.
 
 ### 1. Clone the repository
 
@@ -77,9 +79,9 @@ git clone https://github.com/maka-tanmay/Resume_mix_and_match.git
 cd Resume_mix_and_match
 ```
 
-### 2. Create a Supabase project (optional)
+### 2. Self-host your own backend (optional)
 
-Skip this section entirely if you use local-only mode.
+Skip this section unless you want your own Supabase project instead of the hosted one — the in-app link **"Self-hosting? Use your own Supabase"** accepts the values below. Note: the hosted backend also requires the SQL in step 6 to have been run once by the project owner.
 
 1. Go to https://app.supabase.com and create a project.
 2. In **Authentication → Providers**, enable **Google**.
@@ -141,7 +143,7 @@ python -m http.server 8000
 npm test
 ```
 
-When the app opens, either paste the Supabase project URL and anon/publishable key, or click **Continue without an account** for local-only use. The app stores these values in local browser storage.
+When the app opens, sign in with Google, request an email magic link, or click **Try without an account** for local-only use.
 
 ### 4. Deploy (optional)
 
@@ -153,8 +155,8 @@ Deploy the folder to any static‑hosting provider. When deploying to **Vercel**
 
 ## Usage Guide
 
-1. **Connect Supabase** by entering the project URL and anon/publishable key — or choose **Continue without an account**.
-2. **Sign in with Google** (skipped in local mode).
+1. **Sign in** with Google or an email magic link — or choose **Try without an account** (local-only).
+2. There is no configuration step; self-hosters can swap in their own Supabase via the link on the sign-in page.
 3. **Upload a resume** as PDF, DOC/DOCX, or LaTeX, or start from sample content. Every entry lands in the left-hand library.
 4. **Import more resumes** with *＋ Import Resume* — their entries are appended to the library, tagged with the file name.
 5. **Add items manually** with the ＋ button on any section header; click a card to expand and edit its fields.

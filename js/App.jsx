@@ -6,6 +6,7 @@ const LOCAL_USER = {
 const App = () => {
     const [localMode, setLocalMode] = React.useState(isLocalModeEnabled());
     const [supabaseConfig, setSupabaseConfig] = React.useState(loadSupabaseConfig());
+    const [showSetup, setShowSetup] = React.useState(false);
     const [supabaseClient, setSupabaseClient] = React.useState(null);
     const [session, setSession] = React.useState(null);
     const [loadingAuth, setLoadingAuth] = React.useState(Boolean(supabaseConfig));
@@ -81,18 +82,19 @@ const App = () => {
     const handleConfigSaved = (config) => {
         saveSupabaseConfig(config);
         setSetupError("");
+        setShowSetup(false);
         setSupabaseConfig(config);
     };
 
-    const handleResetConfig = async () => {
-        if (supabaseClient) {
+    // Drops any self-hosted override and returns to the hosted backend.
+    const handleUseHostedBackend = async () => {
+        if (supabaseClient && hasStoredSupabaseOverride()) {
             await supabaseClient.auth.signOut();
         }
         clearSupabaseConfig();
-        setSupabaseConfig(null);
-        setSupabaseClient(null);
-        setSession(null);
         setSetupError("");
+        setShowSetup(false);
+        setSupabaseConfig(loadSupabaseConfig());
     };
 
     const handleEnterLocalMode = () => {
@@ -202,8 +204,16 @@ const App = () => {
     };
 
     if (!localMode) {
-        if (!supabaseConfig || setupError) {
-            return <SupabaseSetup initialError={setupError} onConfigSaved={handleConfigSaved} onLocalMode={handleEnterLocalMode} />;
+        if (showSetup || !supabaseConfig || setupError) {
+            return (
+                <SupabaseSetup
+                    initialError={setupError}
+                    onConfigSaved={handleConfigSaved}
+                    onLocalMode={handleEnterLocalMode}
+                    onUseHosted={getDefaultSupabaseConfig() ? handleUseHostedBackend : undefined}
+                    usingOverride={hasStoredSupabaseOverride()}
+                />
+            );
         }
 
         if (loadingAuth || !supabaseClient) {
@@ -218,7 +228,7 @@ const App = () => {
         }
 
         if (!session) {
-            return <AuthPage supabaseClient={supabaseClient} onResetConfig={handleResetConfig} onLocalMode={handleEnterLocalMode} />;
+            return <AuthPage supabaseClient={supabaseClient} onShowSetup={() => setShowSetup(true)} onLocalMode={handleEnterLocalMode} />;
         }
     }
 

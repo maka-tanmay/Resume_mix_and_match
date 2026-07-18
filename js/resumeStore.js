@@ -1,3 +1,13 @@
+// Maps raw PostgREST errors to messages a user can act on.
+const friendlyStoreError = (error) => {
+    if (error?.code === "PGRST205" || /profiles.*schema cache/i.test(error?.message || "")) {
+        return new Error(
+            "The backend database isn't set up yet (missing 'profiles' table). Run the setup SQL from the README in the Supabase SQL Editor. Your work is still saved in this browser."
+        );
+    }
+    return error instanceof Error ? error : new Error(error?.message || "Supabase request failed.");
+};
+
 const loadRemoteResumeState = async (supabaseClient, userId) => {
     const { data, error } = await supabaseClient
         .from("profiles")
@@ -5,7 +15,7 @@ const loadRemoteResumeState = async (supabaseClient, userId) => {
         .eq("uid", userId)
         .maybeSingle();
 
-    if (error) throw error;
+    if (error) throw friendlyStoreError(error);
     return data?.resume_state || null;
 };
 
@@ -16,7 +26,7 @@ const saveRemoteResumeState = async (supabaseClient, userId, resumeState) => {
         updated_at: new Date().toISOString(),
     });
 
-    if (error) throw error;
+    if (error) throw friendlyStoreError(error);
 };
 
 const clearRemoteResumeState = async (supabaseClient, userId) => {
@@ -25,5 +35,5 @@ const clearRemoteResumeState = async (supabaseClient, userId) => {
         .delete()
         .eq("uid", userId);
 
-    if (error) throw error;
+    if (error) throw friendlyStoreError(error);
 };

@@ -15,12 +15,28 @@ const normalizeSupabaseConfig = (config) => {
     };
 };
 
+const getDefaultSupabaseConfig = () =>
+    typeof DEFAULT_SUPABASE_CONFIG !== "undefined" && DEFAULT_SUPABASE_CONFIG?.supabaseUrl && DEFAULT_SUPABASE_CONFIG?.supabaseAnonKey
+        ? normalizeSupabaseConfig(DEFAULT_SUPABASE_CONFIG)
+        : null;
+
+// A self-hosted override saved from the setup screen wins; otherwise the
+// app's hosted backend (js/config.js) is used — no configuration required.
 const loadSupabaseConfig = () => {
     try {
-        return normalizeSupabaseConfig(JSON.parse(localStorage.getItem(SUPABASE_CONFIG_KEY)));
+        const stored = normalizeSupabaseConfig(JSON.parse(localStorage.getItem(SUPABASE_CONFIG_KEY)));
+        if (stored?.supabaseUrl && stored?.supabaseAnonKey) return stored;
     } catch (error) {
         console.error("Error loading Supabase config:", error);
-        return null;
+    }
+    return getDefaultSupabaseConfig();
+};
+
+const hasStoredSupabaseOverride = () => {
+    try {
+        return Boolean(localStorage.getItem(SUPABASE_CONFIG_KEY));
+    } catch (error) {
+        return false;
     }
 };
 
