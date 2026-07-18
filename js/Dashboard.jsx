@@ -1,43 +1,68 @@
 const { useState, useEffect, useRef } = React;
 
-const syncStructuredResumeFromEditor = (resumeState, personalInfo, jobs) => {
-    const structuredResume = resumeState?.structuredResume || {
-        basics: {},
-        education: [],
-        skills: [],
-        experience: [],
-        projects: [],
-        research: [],
-        leadership: [],
-        customSections: [],
-    };
-
-    return {
-        ...structuredResume,
-        basics: {
-            ...structuredResume.basics,
-            name: personalInfo.name,
-            email: personalInfo.email,
-            phone: personalInfo.phone,
-            linkedin: personalInfo.linkedin,
-        },
-        experience: jobs.filter((job) => job.included).map((job) => {
-            const activeVariant = job.variants.find((variant) => variant.id === job.selectedVariantId);
-            return {
-                title: job.title,
-                company: job.company,
-                location: "",
-                dates: job.duration,
-                bullets: activeVariant ? activeVariant.bullets.split("\n").filter(Boolean) : [],
-            };
-        }),
-    };
+// Per-section config for the library sidebar. `fields` are [key, placeholder, kind?]
+// where kind "csv" edits an array as comma-separated text. Entry-like sections
+// carry wording variants; the active variant supplies the preview/LaTeX bullets.
+const SECTION_META = {
+    education: {
+        label: "Education",
+        fields: [["school", "School"], ["degree", "Degree"], ["location", "Location"], ["dates", "Dates (e.g. Aug 2016 - May 2020)"]],
+        hasVariants: false,
+        summary: (item) => [item.school, item.degree].filter(Boolean).join(" — "),
+        subSummary: (item) => item.dates || "",
+        blank: () => ({ school: "", degree: "", location: "", dates: "" }),
+    },
+    experience: {
+        label: "Experience",
+        fields: [["title", "Job Title"], ["company", "Company"], ["location", "Location"], ["dates", "Dates (e.g. Jan 2021 - Present)"]],
+        hasVariants: true,
+        summary: (item) => [item.title, item.company].filter(Boolean).join(" — "),
+        subSummary: (item) => item.dates || "",
+        blank: () => ({ title: "", company: "", location: "", dates: "" }),
+    },
+    projects: {
+        label: "Projects",
+        fields: [["name", "Project Name"], ["technologies", "Technologies (comma separated)", "csv"], ["dates", "Dates"]],
+        hasVariants: true,
+        summary: (item) => item.name || "",
+        subSummary: (item) => [(item.technologies || []).join(", "), item.dates].filter(Boolean).join(" • "),
+        blank: () => ({ name: "", technologies: [], dates: "" }),
+    },
+    research: {
+        label: "Research",
+        fields: [["title", "Title"], ["company", "Organization / Lab"], ["location", "Location"], ["dates", "Dates"]],
+        hasVariants: true,
+        summary: (item) => [item.title, item.company].filter(Boolean).join(" — "),
+        subSummary: (item) => item.dates || "",
+        blank: () => ({ title: "", company: "", location: "", dates: "" }),
+    },
+    leadership: {
+        label: "Leadership",
+        fields: [["title", "Role"], ["company", "Organization"], ["location", "Location"], ["dates", "Dates"]],
+        hasVariants: true,
+        summary: (item) => [item.title, item.company].filter(Boolean).join(" — "),
+        subSummary: (item) => item.dates || "",
+        blank: () => ({ title: "", company: "", location: "", dates: "" }),
+    },
+    skills: {
+        label: "Technical Skills",
+        fields: [["category", "Category (e.g. Languages)"], ["items", "Items (comma separated)", "csv"]],
+        hasVariants: false,
+        summary: (item) => item.category || "",
+        subSummary: (item) => (item.items || []).join(", "),
+        blank: () => ({ category: "", items: [] }),
+    },
 };
 
 // Mirrors the Jake's Resume template layout: small-caps ruled section titles,
 // bold title / italic organization rows, and the same section order as the
 // generated LaTeX so the preview matches the compiled PDF.
-const StructuredResumePreview = ({ resume }) => {
+// When personalInfo + onPersonalInfoChange are provided, the header contact
+// block is rendered as inline-editable inputs.
+const StructuredResumePreview = ({ resume, personalInfo, onPersonalInfoChange }) => {
+    const editable = Boolean(personalInfo && onPersonalInfoChange);
+    const updatePersonalInfo = (field) => (event) => onPersonalInfoChange({ ...personalInfo, [field]: event.target.value });
+
     const section = (title, children, show = true) => (show ? (
         <div className="mb-4">
             <h2 className="text-xl resume-caps border-b border-black mb-2">{title}</h2>
@@ -70,39 +95,78 @@ const StructuredResumePreview = ({ resume }) => {
         </div>
     );
 
+    const sectionBlocks = {
+        education: () => section("Education", <div>{(resume.education || []).map((item, index) => (
+            <div key={index} className="mb-2">
+                <div className="flex justify-between"><strong>{item.school}</strong><span className="text-sm">{item.location}</span></div>
+                <div className="flex justify-between italic text-sm"><span>{item.degree}</span><span>{item.dates}</span></div>
+            </div>
+        ))}</div>, resume.education?.length),
+        experience: () => section("Experience", <div>{(resume.experience || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.experience?.length),
+        projects: () => section("Projects", <div>{(resume.projects || []).map((entry, index) => entryBlock(entry, index, true))}</div>, resume.projects?.length),
+        research: () => section("Research", <div>{(resume.research || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.research?.length),
+        leadership: () => section("Leadership", <div>{(resume.leadership || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.leadership?.length),
+        skills: () => section("Technical Skills", <div className="text-sm space-y-1">{(resume.skills || []).map((skill, index) => <p key={index}><strong>{skill.category}:</strong> {(skill.items || []).join(", ")}</p>)}</div>, resume.skills?.length),
+    };
+
+    const editableContactFields = [
+        ["phone", "Phone", "w-32"],
+        ["email", "Email", "w-44 underline"],
+        ["linkedin", "LinkedIn", "w-48 underline"],
+        ["github", "GitHub", "w-40 underline"],
+        ["portfolio", "Portfolio", "w-40 underline"],
+    ];
+
     return (
         <>
             <div className="text-center mb-6">
-                <h1 className="text-4xl font-bold resume-caps">{resume.basics?.name}</h1>
-                <div className="flex justify-center items-center gap-2 mt-1 text-sm flex-wrap">
-                    {[resume.basics?.phone, resume.basics?.email, resume.basics?.linkedin, resume.basics?.github, resume.basics?.portfolio].filter(Boolean).map((item, index) => (
-                        <React.Fragment key={item}>
-                            {index > 0 && <span>|</span>}
-                            <span className={item.includes("@") || item.includes(".") ? "underline" : ""}>{item}</span>
-                        </React.Fragment>
-                    ))}
-                </div>
+                {editable ? (
+                    <input
+                        className="text-4xl font-bold resume-caps w-full text-center outline-none bg-transparent hover:bg-gray-100 transition-colors"
+                        value={personalInfo.name || ""}
+                        placeholder="Your Name"
+                        onChange={updatePersonalInfo("name")}
+                    />
+                ) : (
+                    <h1 className="text-4xl font-bold resume-caps">{resume.basics?.name}</h1>
+                )}
+                {editable ? (
+                    <div className="flex justify-center items-center gap-2 mt-1 text-sm flex-wrap">
+                        {editableContactFields.map(([field, placeholder, className], index) => (
+                            <React.Fragment key={field}>
+                                {index > 0 && <span className="text-gray-400">|</span>}
+                                <input
+                                    className={`outline-none bg-transparent hover:bg-gray-100 text-center ${className}`}
+                                    placeholder={placeholder}
+                                    value={personalInfo[field] || ""}
+                                    onChange={updatePersonalInfo(field)}
+                                />
+                            </React.Fragment>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex justify-center items-center gap-2 mt-1 text-sm flex-wrap">
+                        {[resume.basics?.phone, resume.basics?.email, resume.basics?.linkedin, resume.basics?.github, resume.basics?.portfolio].filter(Boolean).map((item, index) => (
+                            <React.Fragment key={`${item}-${index}`}>
+                                {index > 0 && <span>|</span>}
+                                <span className={item.includes("@") || item.includes(".") ? "underline" : ""}>{item}</span>
+                            </React.Fragment>
+                        ))}
+                    </div>
+                )}
             </div>
-            {section("Education", <div>{(resume.education || []).map((item, index) => (
-                <div key={index} className="mb-2">
-                    <div className="flex justify-between"><strong>{item.school}</strong><span className="text-sm">{item.location}</span></div>
-                    <div className="flex justify-between italic text-sm"><span>{item.degree}</span><span>{item.dates}</span></div>
-                </div>
-            ))}</div>, resume.education?.length)}
-            {section("Experience", <div>{(resume.experience || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.experience?.length)}
-            {section("Projects", <div>{(resume.projects || []).map((entry, index) => entryBlock(entry, index, true))}</div>, resume.projects?.length)}
-            {section("Research", <div>{(resume.research || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.research?.length)}
-            {section("Leadership", <div>{(resume.leadership || []).map((entry, index) => entryBlock(entry, index))}</div>, resume.leadership?.length)}
-            {section("Technical Skills", <div className="text-sm space-y-1">{(resume.skills || []).map((skill, index) => <p key={index}><strong>{skill.category}:</strong> {(skill.items || []).join(", ")}</p>)}</div>, resume.skills?.length)}
+            {resolveSectionOrder(resume).map((key) => (
+                <React.Fragment key={key}>{sectionBlocks[key]()}</React.Fragment>
+            ))}
         </>
     );
 };
 
-const OriginalResumePreview = ({ resumeState }) => {
+const OriginalResumePreview = ({ resumeState, fallbackResume }) => {
     const preview = resumeState?.originalPreview;
 
     if (!preview) {
-        return <StructuredResumePreview resume={syncStructuredResumeFromEditor(resumeState, resumeState.personalInfo, resumeState.jobs || [])} />;
+        return <StructuredResumePreview resume={fallbackResume} />;
     }
 
     if (preview.kind === "pdf") {
@@ -140,21 +204,180 @@ const downloadTextFile = (filename, content, type) => {
     URL.revokeObjectURL(url);
 };
 
-const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, onSignOut }) => {
-    const initialJobsForState = resumeState?.jobs || initialJobs;
-    const [personalInfo, setPersonalInfo] = useState(resumeState?.personalInfo || defaultPersonalInfo);
-    const [jobs, setJobs] = useState(initialJobsForState);
-    const [draggedJobId, setDraggedJobId] = useState(null);
-    const [syncStatus, setSyncStatus] = useState("synced");
-    const initialLoad = useRef(true);
+const VariantsEditor = ({ item, onPatch }) => {
+    const variants = item.variants || [];
 
-    const [isAddingJob, setIsAddingJob] = useState(false);
-    const [newJob, setNewJob] = useState({ company: "", title: "", duration: "", bullets: "" });
-    const [addingVariantToId, setAddingVariantToId] = useState(null);
-    const [newVariant, setNewVariant] = useState({ label: "", bullets: "" });
-    const [expandedJobs, setExpandedJobs] = useState(initialJobsForState.map((job) => job.id));
+    const patchVariant = (variantId, patch) =>
+        onPatch({ variants: variants.map((variant) => (variant.id === variantId ? { ...variant, ...patch } : variant)) });
+
+    const addVariant = () => {
+        const active = variants.find((variant) => variant.id === item.selectedVariantId) || variants[0];
+        const variantId = createItemId("var");
+        onPatch({
+            variants: [...variants, { id: variantId, label: `Variant ${variants.length + 1}`, bullets: active?.bullets || "" }],
+            selectedVariantId: variantId,
+        });
+    };
+
+    const removeVariant = (variantId) => {
+        const remaining = variants.filter((variant) => variant.id !== variantId);
+        onPatch({
+            variants: remaining,
+            selectedVariantId: item.selectedVariantId === variantId ? remaining[0]?.id : item.selectedVariantId,
+        });
+    };
+
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-app-textMuted uppercase tracking-wider">Variants</span>
+                <button type="button" onClick={addVariant} className="text-xs text-app-text hover:text-white flex items-center gap-1">
+                    <IconPlus size={12} /> Add Variant
+                </button>
+            </div>
+            {variants.map((variant) => (
+                <div
+                    key={variant.id}
+                    className={`p-2 rounded-lg border ${item.selectedVariantId === variant.id ? "bg-[#2C2C2E] border-app-accent/30" : "bg-[#0a0a0a] border-app-border"}`}
+                >
+                    <div className="flex items-center gap-2 mb-1">
+                        <input
+                            type="radio"
+                            checked={item.selectedVariantId === variant.id}
+                            onChange={() => onPatch({ selectedVariantId: variant.id })}
+                            className="accent-white cursor-pointer"
+                        />
+                        <input
+                            className="flex-1 bg-transparent text-xs font-medium border-b border-transparent focus:border-app-border focus:outline-none py-0.5"
+                            value={variant.label}
+                            placeholder="Variant label"
+                            onChange={(event) => patchVariant(variant.id, { label: event.target.value })}
+                        />
+                        {variants.length > 1 && (
+                            <button type="button" onClick={() => removeVariant(variant.id)} className="text-app-textMuted hover:text-red-400 text-xs px-1">
+                                ✕
+                            </button>
+                        )}
+                    </div>
+                    <textarea
+                        className="w-full bg-transparent border border-app-border/60 rounded px-2 py-1 text-xs focus:outline-none focus:border-app-textMuted h-20"
+                        placeholder="Bullet points (one per line)"
+                        value={variant.bullets}
+                        onChange={(event) => patchVariant(variant.id, { bullets: event.target.value })}
+                    />
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExpanded, onPatch, onRemove, onMove, onDragStart, onDragEnd, onDrop, dragging }) => {
+    const meta = SECTION_META[sectionKey];
+    const summary = meta.summary(item) || "Untitled";
+
+    return (
+        <div
+            draggable
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={onDrop}
+            className={`bg-app-card border rounded-xl transition-all ${item.included ? "border-app-accent/40" : "border-app-border opacity-70"} ${dragging ? "opacity-50" : ""}`}
+        >
+            <div className="p-3 flex items-start gap-2">
+                <span className="mt-0.5 text-app-textMuted cursor-grab active:cursor-grabbing select-none" title="Drag to reorder">⠿</span>
+                <input
+                    type="checkbox"
+                    checked={Boolean(item.included)}
+                    onChange={() => onPatch({ included: !item.included })}
+                    className="w-4 h-4 mt-0.5 rounded accent-white border-app-border cursor-pointer shrink-0"
+                    title="Include in resume"
+                />
+                <div className="flex-1 min-w-0 cursor-pointer select-none" onClick={onToggleExpanded}>
+                    <p className={`text-sm font-medium truncate ${item.included ? "text-white" : "text-app-textMuted"}`}>{summary}</p>
+                    <p className="text-xs text-app-textMuted truncate">{meta.subSummary(item)}</p>
+                    {item.source && <p className="text-[10px] uppercase tracking-wider text-app-textMuted/60 mt-0.5 truncate">{item.source}</p>}
+                </div>
+                <div className="flex flex-col shrink-0">
+                    <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => onMove(-1)}
+                        className="text-app-textMuted hover:text-white disabled:opacity-20 text-[10px] leading-3 px-1"
+                        title="Move up"
+                    >
+                        ▲
+                    </button>
+                    <button
+                        type="button"
+                        disabled={index === total - 1}
+                        onClick={() => onMove(1)}
+                        className="text-app-textMuted hover:text-white disabled:opacity-20 text-[10px] leading-3 px-1"
+                        title="Move down"
+                    >
+                        ▼
+                    </button>
+                </div>
+            </div>
+
+            {expanded && (
+                <div className="px-3 pb-3 pt-2 border-t border-app-border/50 space-y-2">
+                    {meta.fields.map(([field, placeholder, kind]) => (
+                        kind === "csv" ? (
+                            <input
+                                key={`${item.id}-${field}`}
+                                defaultValue={(item[field] || []).join(", ")}
+                                placeholder={placeholder}
+                                onBlur={(event) => onPatch({ [field]: event.target.value.split(",").map((part) => part.trim()).filter(Boolean) })}
+                                className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-app-textMuted"
+                            />
+                        ) : (
+                            <input
+                                key={`${item.id}-${field}`}
+                                value={item[field] || ""}
+                                placeholder={placeholder}
+                                onChange={(event) => onPatch({ [field]: event.target.value })}
+                                className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-app-textMuted"
+                            />
+                        )
+                    ))}
+                    {meta.hasVariants && <VariantsEditor item={item} onPatch={onPatch} />}
+                    <div className="flex justify-end">
+                        <button type="button" onClick={onRemove} className="text-xs text-red-400/80 hover:text-red-300">
+                            Delete from library
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, onSignOut, signOutLabel = "Sign Out", syncTargetLabel = "Saved to Supabase" }) => {
+    const [personalInfo, setPersonalInfo] = useState(resumeState?.personalInfo || { ...defaultPersonalInfo });
+    const [library, setLibrary] = useState(resumeState?.library || createEmptyLibrary());
+    const [sectionOrder, setSectionOrder] = useState(normalizeSectionOrder(resumeState?.sectionOrder));
+    const [expandedItems, setExpandedItems] = useState({});
+    const [syncStatus, setSyncStatus] = useState("synced");
     const [previewMode, setPreviewMode] = useState(resumeState?.originalPreview ? "original" : "edited");
+    const [latexDraft, setLatexDraft] = useState("");
+    const [latexError, setLatexError] = useState("");
+    const [importStatus, setImportStatus] = useState({ loading: false, error: "" });
+    const [draggedItem, setDraggedItem] = useState(null);
+    const importInput = useRef(null);
+    const initialLoad = useRef(true);
+    // The debounced autosave below fires up to 1s after a render; read the
+    // resume state through a ref so it merges into the *latest* saved state
+    // (e.g. after Reset) instead of the render it was scheduled in.
+    const resumeStateRef = useRef(resumeState);
+    useEffect(() => {
+        resumeStateRef.current = resumeState;
+    }, [resumeState]);
     const debugMode = new URLSearchParams(window.location.search).get("debug") === "resume";
+
+    const structuredResume = libraryToStructuredResume(personalInfo, library, sectionOrder);
+    const currentLatex = generateStructuredLatex(structuredResume);
+    const hasIncludedContent = RESUME_SECTION_KEYS.some((key) => (structuredResume[key] || []).length);
 
     useEffect(() => {
         if (initialLoad.current) {
@@ -165,14 +388,8 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         setSyncStatus("saving");
         const saveTimeout = setTimeout(async () => {
             try {
-                await onResumeStateChange({
-                    ...resumeState,
-                    personalInfo,
-                    jobs,
-                    structuredResume: syncStructuredResumeFromEditor(resumeState, personalInfo, jobs),
-                    generatedLatex: generateStructuredLatex(syncStructuredResumeFromEditor(resumeState, personalInfo, jobs)),
-                    generatedHtml: generateStructuredHtml(syncStructuredResumeFromEditor(resumeState, personalInfo, jobs)),
-                });
+                const { jobs: _legacyJobs, ...latest } = resumeStateRef.current || {};
+                await onResumeStateChange(buildResumeStateProjections({ ...latest, personalInfo, library, sectionOrder }));
                 setSyncStatus("synced");
             } catch (error) {
                 console.error("Error saving data:", error);
@@ -181,107 +398,140 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         }, 1000);
 
         return () => clearTimeout(saveTimeout);
-    }, [personalInfo, jobs]);
+    }, [personalInfo, library, sectionOrder]);
 
-    const toggleJobInclusion = (id) => {
-        setJobs(jobs.map((job) => (job.id === id ? { ...job, included: !job.included } : job)));
+    const toggleExpanded = (id) => setExpandedItems((expanded) => ({ ...expanded, [id]: !expanded[id] }));
+
+    const patchItem = (sectionKey, id, patch) =>
+        setLibrary((lib) => ({ ...lib, [sectionKey]: lib[sectionKey].map((item) => (item.id === id ? { ...item, ...patch } : item)) }));
+
+    const removeItem = (sectionKey, id) =>
+        setLibrary((lib) => ({ ...lib, [sectionKey]: lib[sectionKey].filter((item) => item.id !== id) }));
+
+    const moveItem = (sectionKey, id, delta) =>
+        setLibrary((lib) => {
+            const items = [...lib[sectionKey]];
+            const from = items.findIndex((item) => item.id === id);
+            const to = from + delta;
+            if (from < 0 || to < 0 || to >= items.length) return lib;
+            const [moved] = items.splice(from, 1);
+            items.splice(to, 0, moved);
+            return { ...lib, [sectionKey]: items };
+        });
+
+    const addItem = (sectionKey) => {
+        const meta = SECTION_META[sectionKey];
+        const item = {
+            id: createItemId(sectionKey),
+            included: true,
+            source: "manual",
+            ...meta.blank(),
+            ...(meta.hasVariants ? createVariantSet([], "Default") : {}),
+        };
+        setLibrary((lib) => ({ ...lib, [sectionKey]: [item, ...lib[sectionKey]] }));
+        setExpandedItems((expanded) => ({ ...expanded, [item.id]: true }));
     };
 
-    const selectVariant = (jobId, variantId) => {
-        setJobs(jobs.map((job) => (job.id === jobId ? { ...job, selectedVariantId: variantId } : job)));
+    const moveSection = (sectionKey, delta) =>
+        setSectionOrder((order) => {
+            const next = [...order];
+            const from = next.indexOf(sectionKey);
+            const to = from + delta;
+            if (from < 0 || to < 0 || to >= next.length) return order;
+            next.splice(from, 1);
+            next.splice(to, 0, sectionKey);
+            return next;
+        });
+
+    const handleItemDrop = (sectionKey, targetId) => {
+        if (!draggedItem || draggedItem.sectionKey !== sectionKey || draggedItem.id === targetId) return;
+        setLibrary((lib) => {
+            const items = [...lib[sectionKey]];
+            const from = items.findIndex((item) => item.id === draggedItem.id);
+            const to = items.findIndex((item) => item.id === targetId);
+            if (from < 0 || to < 0) return lib;
+            const [moved] = items.splice(from, 1);
+            items.splice(to, 0, moved);
+            return { ...lib, [sectionKey]: items };
+        });
     };
 
-    const toggleJobExpansion = (id) => {
-        if (expandedJobs.includes(id)) {
-            setExpandedJobs(expandedJobs.filter((jobId) => jobId !== id));
-        } else {
-            setExpandedJobs([...expandedJobs, id]);
+    const handleImportClick = () => {
+        setImportStatus({ loading: false, error: "" });
+        importInput.current?.click();
+    };
+
+    const handleImportSelected = async (event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+
+        setImportStatus({ loading: true, error: "" });
+        try {
+            const parsed = await parseUploadedResume(file, detectResumeFormat(file));
+            setLibrary((lib) => mergeLibraries(lib, createLibraryFromStructuredResume(parsed.structuredResume, file.name)));
+            setPersonalInfo((info) => fillEmptyPersonalInfo(info, parsed.structuredResume.basics || {}));
+            setImportStatus({ loading: false, error: "" });
+        } catch (error) {
+            setImportStatus({ loading: false, error: error.message || "Could not read this resume file." });
         }
     };
 
-    const handleDragStart = (event, id) => {
-        setDraggedJobId(id);
-        setTimeout(() => {
-            event.target.style.opacity = "0.5";
-        }, 0);
+    const openLatexView = () => {
+        setLatexDraft(currentLatex);
+        setLatexError("");
+        setPreviewMode("latex");
     };
 
-    const handleDragEnd = (event) => {
-        event.target.style.opacity = "1";
-        setDraggedJobId(null);
+    const handleApplyLatex = () => {
+        try {
+            const parsed = parseLatexSource(latexDraft);
+            const parsedResume = parsed.structuredResume;
+            const hasContent = RESUME_SECTION_KEYS.some((key) => (parsedResume[key] || []).length);
+            if (!hasContent) {
+                throw new Error("No resume sections found. Keep the \\section{...} headings so entries can be parsed.");
+            }
+
+            const incoming = createLibraryFromStructuredResume(parsedResume, "latex-edit");
+            // The LaTeX document represents the current selection: parsed entries
+            // replace the included items; unchecked library items are untouched.
+            setLibrary((lib) => Object.fromEntries(
+                RESUME_SECTION_KEYS.map((key) => [key, [...incoming[key], ...lib[key].filter((item) => !item.included)]])
+            ));
+            const basics = parsedResume.basics || {};
+            setPersonalInfo((info) => fillEmptyPersonalInfo({
+                ...info,
+                name: basics.name || info.name,
+                email: basics.email || info.email,
+                phone: basics.phone || info.phone,
+                linkedin: basics.linkedin || info.linkedin,
+            }, basics));
+            setLatexError("");
+            setPreviewMode("edited");
+        } catch (error) {
+            setLatexError(error.message || "Could not parse the LaTeX source.");
+        }
     };
 
-    const handleDrop = (event, targetId) => {
-        event.preventDefault();
-        if (!draggedJobId || draggedJobId === targetId) return;
-
-        const draggedIndex = jobs.findIndex((job) => job.id === draggedJobId);
-        const targetIndex = jobs.findIndex((job) => job.id === targetId);
-        const reorderedJobs = [...jobs];
-        const [draggedItem] = reorderedJobs.splice(draggedIndex, 1);
-        reorderedJobs.splice(targetIndex, 0, draggedItem);
-
-        setJobs(reorderedJobs);
-    };
-
-    const handleAddJobSubmit = (event) => {
-        event.preventDefault();
-        const newId = `job-${Date.now()}`;
-        const variantId = `v1-${Date.now()}`;
-        const createdJob = {
-            id: newId,
-            company: newJob.company,
-            title: newJob.title,
-            duration: newJob.duration,
-            included: true,
-            selectedVariantId: variantId,
-            variants: [{ id: variantId, label: "Default", bullets: newJob.bullets }],
-        };
-
-        setJobs([createdJob, ...jobs]);
-        setExpandedJobs([...expandedJobs, newId]);
-        setIsAddingJob(false);
-        setNewJob({ company: "", title: "", duration: "", bullets: "" });
-    };
-
-    const handleAddVariantSubmit = (event, jobId) => {
-        event.preventDefault();
-        const variantId = `v-${Date.now()}`;
-        const addedVariant = { id: variantId, label: newVariant.label, bullets: newVariant.bullets };
-
-        setJobs(
-            jobs.map((job) =>
-                job.id === jobId
-                    ? { ...job, variants: [...job.variants, addedVariant], selectedVariantId: variantId }
-                    : job
-            )
-        );
-        setAddingVariantToId(null);
-        setNewVariant({ label: "", bullets: "" });
-    };
+    const exportLatex = () => (previewMode === "latex" ? latexDraft : currentLatex);
 
     const handleCopyLatex = () => {
-        const latexStr = resumeState?.structuredResume
-            ? generateStructuredLatex(syncStructuredResumeFromEditor(resumeState, personalInfo, jobs))
-            : generateLatex(personalInfo, jobs.filter((job) => job.included));
         navigator.clipboard
-            .writeText(latexStr)
+            .writeText(exportLatex())
             .then(() => alert("LaTeX copied to clipboard!"))
             .catch((error) => alert(`Failed to copy LaTeX: ${error}`));
     };
 
-    const getEditedStructuredResume = () => syncStructuredResumeFromEditor(resumeState, personalInfo, jobs);
-
     const handleDownloadLatex = () => {
-        downloadTextFile("resume.tex", generateStructuredLatex(getEditedStructuredResume()), "application/x-tex;charset=utf-8");
+        downloadTextFile("resume.tex", exportLatex(), "application/x-tex;charset=utf-8");
     };
 
     const handleDownloadHtml = () => {
-        downloadTextFile("resume.html", generateStandaloneHtml(getEditedStructuredResume()), "text/html;charset=utf-8");
+        downloadTextFile("resume.html", generateStandaloneHtml(structuredResume), "text/html;charset=utf-8");
     };
 
     const handleDownloadDoc = () => {
-        downloadTextFile("resume.doc", generateDocHtml(getEditedStructuredResume()), "application/msword;charset=utf-8");
+        downloadTextFile("resume.doc", generateDocHtml(structuredResume), "application/msword;charset=utf-8");
     };
 
     const handleDownloadPdf = () => {
@@ -289,12 +539,30 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         setTimeout(() => window.print(), 100);
     };
 
+    // Overleaf's "open in Overleaf" API: POST the LaTeX source as `snip` to
+    // /docs and it creates a project — real compiled output in one click.
+    const handleOpenOverleaf = () => {
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = "https://www.overleaf.com/docs";
+        form.target = "_blank";
+        const snip = document.createElement("textarea");
+        snip.name = "snip";
+        snip.value = exportLatex();
+        form.appendChild(snip);
+        document.body.appendChild(form);
+        form.submit();
+        form.remove();
+    };
+
     const handleReset = () => {
-        setPersonalInfo(defaultPersonalInfo);
-        setJobs(initialJobs);
-        setExpandedJobs(initialJobs.map((job) => job.id));
-        const structuredResume = syncStructuredResumeFromEditor({}, defaultPersonalInfo, initialJobs);
-        onResumeStateChange({ personalInfo: defaultPersonalInfo, jobs: initialJobs, structuredResume, generatedLatex: generateStructuredLatex(structuredResume), generatedHtml: generateStructuredHtml(structuredResume) })
+        const sample = createResumeStateFromSample();
+        setPersonalInfo(sample.personalInfo);
+        setLibrary(sample.library);
+        setSectionOrder(sample.sectionOrder);
+        setExpandedItems({});
+        setPreviewMode("edited");
+        onResumeStateChange(sample)
             .then(() => setSyncStatus("synced"))
             .catch((error) => {
                 console.error("Error saving reset data:", error);
@@ -302,117 +570,99 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             });
     };
 
-    const selectedJobs = jobs.filter((job) => job.included);
-
     return (
         <div className="flex h-screen w-full bg-app-bg text-app-text overflow-hidden">
-            <div className="w-[450px] flex flex-col border-r border-app-border h-full bg-[#0a0a0a]">
-                <div className="p-6 pb-4 border-b border-app-border flex justify-between items-center bg-[#0a0a0a] z-10">
-                    <div>
-                        <h1 className="text-2xl font-bold tracking-tight text-white">Experience Library</h1>
-                        <p className="text-sm text-app-textMuted mt-1">Mix and match job history</p>
+            <div className="w-[480px] flex flex-col border-r border-app-border h-full bg-[#0a0a0a]">
+                <div className="p-6 pb-4 border-b border-app-border flex justify-between items-center gap-3 bg-[#0a0a0a] z-10">
+                    <div className="min-w-0">
+                        <h1 className="text-2xl font-bold tracking-tight text-white">Resume Library</h1>
+                        <p className="text-sm text-app-textMuted mt-1">Mix and match sections across resumes</p>
                     </div>
                     <button
-                        onClick={() => setIsAddingJob(!isAddingJob)}
-                        className="w-10 h-10 rounded-full bg-app-card hover:bg-app-cardHover flex items-center justify-center transition-colors border border-app-border shadow-sm"
+                        onClick={handleImportClick}
+                        disabled={importStatus.loading}
+                        className="shrink-0 text-xs bg-white text-black font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
                     >
-                        <IconPlus />
+                        {importStatus.loading ? "Importing..." : "＋ Import Resume"}
                     </button>
+                    <input
+                        ref={importInput}
+                        type="file"
+                        accept={RESUME_ACCEPTED_FORMATS}
+                        className="hidden"
+                        onChange={handleImportSelected}
+                    />
                 </div>
+                {importStatus.error && <p className="px-6 pt-2 text-xs text-red-400">{importStatus.error}</p>}
 
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                    {isAddingJob && (
-                        <div className="bg-app-card border border-app-border p-4 rounded-2xl animate-[fadeIn_0.2s_ease-out]">
-                            <h3 className="font-semibold text-lg mb-3">Add Experience</h3>
-                            <form onSubmit={handleAddJobSubmit} className="space-y-3">
-                                <input required placeholder="Company Name" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted" value={newJob.company} onChange={(event) => setNewJob({ ...newJob, company: event.target.value })} />
-                                <input required placeholder="Job Title" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted" value={newJob.title} onChange={(event) => setNewJob({ ...newJob, title: event.target.value })} />
-                                <input required placeholder="Duration (e.g. Jan 2021 - Mar 2023)" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted" value={newJob.duration} onChange={(event) => setNewJob({ ...newJob, duration: event.target.value })} />
-                                <textarea required placeholder="Bullet points (one per line)" className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-app-textMuted h-24" value={newJob.bullets} onChange={(event) => setNewJob({ ...newJob, bullets: event.target.value })} />
-                                <div className="flex justify-end space-x-2 pt-2">
-                                    <button type="button" onClick={() => setIsAddingJob(false)} className="px-4 py-2 text-sm rounded-lg hover:bg-[#38383a]">Cancel</button>
-                                    <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-white text-black font-medium hover:bg-gray-200">Save</button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
-
-                    {jobs.map((job) => {
-                        const isExpanded = expandedJobs.includes(job.id);
-                        const activeVariant = job.variants.find((variant) => variant.id === job.selectedVariantId);
-                        const firstBullet = activeVariant ? activeVariant.bullets.split("\n")[0] : "";
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {sectionOrder.map((sectionKey, sectionIndex) => {
+                        const meta = SECTION_META[sectionKey];
+                        const items = library[sectionKey] || [];
+                        const includedCount = items.filter((item) => item.included).length;
 
                         return (
-                            <div
-                                key={job.id}
-                                draggable
-                                onDragStart={(event) => handleDragStart(event, job.id)}
-                                onDragEnd={handleDragEnd}
-                                onDragOver={(event) => event.preventDefault()}
-                                onDrop={(event) => handleDrop(event, job.id)}
-                                className={`bg-app-card border rounded-2xl transition-all duration-200 ${job.included ? "border-app-accent/50 shadow-md" : "border-app-border opacity-70"} ${draggedJobId === job.id ? "opacity-50" : ""}`}
-                            >
-                                <div className="p-4 flex items-start gap-3">
-                                    <div className="mt-1 cursor-grab active:cursor-grabbing">
-                                        <IconDrag />
-                                    </div>
-                                    <div className="pt-1">
-                                        <input type="checkbox" checked={job.included} onChange={() => toggleJobInclusion(job.id)} className="w-5 h-5 rounded accent-white border-app-border cursor-pointer" />
-                                    </div>
-                                    <div className="flex-1 cursor-pointer select-none" onClick={() => toggleJobExpansion(job.id)}>
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <h3 className={`font-semibold text-lg ${job.included ? "text-white" : "text-app-textMuted"}`}>{job.company}</h3>
-                                                <p className="text-sm text-app-textMuted">{job.title} &bull; {job.duration}</p>
-                                            </div>
-                                            <div className="text-app-textMuted">{isExpanded ? <IconChevronUp /> : <IconChevronDown />}</div>
-                                        </div>
-                                        {!isExpanded && activeVariant && (
-                                            <p className="text-sm text-app-textMuted mt-2 line-clamp-1 italic">"{firstBullet}"</p>
-                                        )}
+                            <section key={sectionKey}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h2 className="text-xs font-bold uppercase tracking-wider text-app-textMuted">
+                                        {meta.label} <span className="font-normal opacity-70">({includedCount}/{items.length})</span>
+                                    </h2>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            type="button"
+                                            disabled={sectionIndex === 0}
+                                            onClick={() => moveSection(sectionKey, -1)}
+                                            className="text-app-textMuted hover:text-white disabled:opacity-20 text-[10px] px-1"
+                                            title="Move section up"
+                                        >
+                                            ▲
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={sectionIndex === sectionOrder.length - 1}
+                                            onClick={() => moveSection(sectionKey, 1)}
+                                            className="text-app-textMuted hover:text-white disabled:opacity-20 text-[10px] px-1"
+                                            title="Move section down"
+                                        >
+                                            ▼
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => addItem(sectionKey)}
+                                            className="text-app-textMuted hover:text-white text-xs px-1 flex items-center"
+                                            title={`Add ${meta.label} item`}
+                                        >
+                                            <IconPlus size={14} />
+                                        </button>
                                     </div>
                                 </div>
-
-                                {isExpanded && (
-                                    <div className="p-4 pt-0 border-t border-app-border/50 mt-2">
-                                        <div className="mt-4 flex items-center justify-between">
-                                            <span className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Variants</span>
-                                            <button onClick={() => setAddingVariantToId(addingVariantToId === job.id ? null : job.id)} className="text-xs flex items-center gap-1 text-app-text hover:text-white">
-                                                <IconPlus size={14} /> Add Variant
-                                            </button>
-                                        </div>
-
-                                        <div className="mt-3 space-y-2">
-                                            {job.variants.map((variant) => (
-                                                <div
-                                                    key={variant.id}
-                                                    onClick={() => selectVariant(job.id, variant.id)}
-                                                    className={`p-3 rounded-xl border cursor-pointer transition-colors ${job.selectedVariantId === variant.id ? "bg-[#2C2C2E] border-app-accent/30" : "bg-[#0a0a0a] border-app-border hover:border-app-textMuted/50"}`}
-                                                >
-                                                    <div className="flex items-center gap-2 mb-2">
-                                                        <input type="radio" checked={job.selectedVariantId === variant.id} onChange={() => selectVariant(job.id, variant.id)} className="accent-white cursor-pointer" />
-                                                        <span className="font-medium text-sm">{variant.label}</span>
-                                                    </div>
-                                                    <ul className="text-xs text-app-textMuted space-y-1 list-disc pl-5">
-                                                        {variant.bullets.split("\n").map((bullet, index) => bullet.trim() && <li key={index}>{bullet}</li>)}
-                                                    </ul>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {addingVariantToId === job.id && (
-                                            <form onSubmit={(event) => handleAddVariantSubmit(event, job.id)} className="mt-3 p-3 bg-[#0a0a0a] rounded-xl border border-app-border">
-                                                <input required placeholder="Variant Label (e.g. Backend Focus)" className="w-full bg-transparent border-b border-app-border px-2 py-1 mb-2 text-sm focus:outline-none" value={newVariant.label} onChange={(event) => setNewVariant({ ...newVariant, label: event.target.value })} />
-                                                <textarea required placeholder="Bullet points (one per line)" className="w-full bg-transparent border border-app-border rounded px-2 py-1 text-sm focus:outline-none h-20" value={newVariant.bullets} onChange={(event) => setNewVariant({ ...newVariant, bullets: event.target.value })} />
-                                                <div className="flex justify-end gap-2 mt-2">
-                                                    <button type="button" onClick={() => setAddingVariantToId(null)} className="text-xs px-3 py-1 rounded hover:bg-[#38383a]">Cancel</button>
-                                                    <button type="submit" className="text-xs px-3 py-1 rounded bg-white text-black font-medium hover:bg-gray-200">Save</button>
-                                                </div>
-                                            </form>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
+                                <div className="space-y-2">
+                                    {items.map((item, index) => (
+                                        <LibraryItemCard
+                                            key={item.id}
+                                            sectionKey={sectionKey}
+                                            item={item}
+                                            index={index}
+                                            total={items.length}
+                                            expanded={Boolean(expandedItems[item.id])}
+                                            onToggleExpanded={() => toggleExpanded(item.id)}
+                                            onPatch={(patch) => patchItem(sectionKey, item.id, patch)}
+                                            onRemove={() => removeItem(sectionKey, item.id)}
+                                            onMove={(delta) => moveItem(sectionKey, item.id, delta)}
+                                            onDragStart={() => setDraggedItem({ sectionKey, id: item.id })}
+                                            onDragEnd={() => setDraggedItem(null)}
+                                            onDrop={(event) => {
+                                                event.preventDefault();
+                                                handleItemDrop(sectionKey, item.id);
+                                            }}
+                                            dragging={draggedItem?.id === item.id}
+                                        />
+                                    ))}
+                                    {items.length === 0 && (
+                                        <p className="text-xs text-app-textMuted italic">Nothing here yet — add one or import a resume.</p>
+                                    )}
+                                </div>
+                            </section>
                         );
                     })}
                 </div>
@@ -424,13 +674,13 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     </div>
                     <div className="flex gap-2">
                         <button onClick={onReplaceResume} className="text-xs bg-[#1C1C1E] border border-app-border hover:bg-[#2C2C2E] px-3 py-1.5 rounded-lg font-medium transition-colors">
-                            Upload New
+                            Start Over
                         </button>
                         <button onClick={handleReset} className="text-xs bg-[#1C1C1E] border border-app-border hover:bg-[#2C2C2E] px-3 py-1.5 rounded-lg font-medium transition-colors">
                             Reset
                         </button>
                         <button onClick={onSignOut} className="text-xs bg-[#1C1C1E] border border-app-border hover:bg-red-950 hover:text-red-300 hover:border-red-900/50 px-3 py-1.5 rounded-lg font-medium transition-colors">
-                            Sign Out
+                            {signOutLabel}
                         </button>
                     </div>
                 </div>
@@ -441,7 +691,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     {syncStatus === "synced" && (
                         <>
                             <IconCloudCheck />
-                            <span className="text-app-textMuted">Saved to Supabase</span>
+                            <span className="text-app-textMuted">{syncTargetLabel}</span>
                         </>
                     )}
                     {syncStatus === "saving" && (
@@ -453,97 +703,99 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     {syncStatus === "error" && <span className="text-red-500">Save Error</span>}
                 </div>
 
-                <div className="absolute top-6 right-6 z-10 flex gap-3 flex-wrap justify-end max-w-[760px]">
-                    {resumeState?.originalPreview && (
-                        <div className="bg-app-card border border-app-border rounded-xl p-1 flex">
+                <div className="absolute top-6 right-6 z-10 flex gap-3 flex-wrap justify-end max-w-[820px]">
+                    <div className="bg-app-card border border-app-border rounded-xl p-1 flex">
+                        {resumeState?.originalPreview && (
                             <button onClick={() => setPreviewMode("original")} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${previewMode === "original" ? "bg-white text-black" : "text-app-textMuted hover:text-white"}`}>
                                 Original
                             </button>
-                            <button onClick={() => setPreviewMode("edited")} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${previewMode === "edited" ? "bg-white text-black" : "text-app-textMuted hover:text-white"}`}>
-                                Edited
-                            </button>
-                        </div>
-                    )}
-                    <button onClick={handleCopyLatex} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg flex items-center gap-2 transition-transform active:scale-95">
-                        Copy as LaTeX
+                        )}
+                        <button onClick={() => setPreviewMode("edited")} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${previewMode === "edited" ? "bg-white text-black" : "text-app-textMuted hover:text-white"}`}>
+                            Preview
+                        </button>
+                        <button onClick={openLatexView} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${previewMode === "latex" ? "bg-white text-black" : "text-app-textMuted hover:text-white"}`}>
+                            LaTeX
+                        </button>
+                    </div>
+                    <button onClick={handleCopyLatex} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg transition-transform active:scale-95">
+                        Copy LaTeX
                     </button>
                     <button onClick={handleDownloadLatex} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
-                        Download .tex
+                        .tex
                     </button>
                     <button onClick={handleDownloadHtml} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
-                        Download HTML
+                        HTML
                     </button>
                     <button onClick={handleDownloadDoc} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
-                        Download DOC
+                        DOC
                     </button>
                     <button onClick={handleDownloadPdf} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
                         Print PDF
                     </button>
+                    <button onClick={handleOpenOverleaf} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg" title="Compile the LaTeX in Overleaf">
+                        Open in Overleaf
+                    </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-12 flex justify-center items-start">
-                    <div className="bg-white text-black w-full max-w-[850px] min-h-[1100px] shadow-2xl p-12 resume-preview relative">
-                        {previewMode === "original" && resumeState?.originalPreview ? (
-                            <OriginalResumePreview resumeState={resumeState} />
-                        ) : resumeState?.structuredResume ? (
-                            <StructuredResumePreview resume={syncStructuredResumeFromEditor(resumeState, personalInfo, jobs)} />
-                        ) : (
-                        <>
-                            <div className="text-center mb-6">
-                            <input className="text-4xl font-bold resume-caps w-full text-center outline-none bg-transparent hover:bg-gray-100 transition-colors" value={personalInfo.name} onChange={(event) => setPersonalInfo({ ...personalInfo, name: event.target.value })} />
-                            <div className="flex justify-center items-center gap-2 mt-1 text-sm">
-                                <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-32" value={personalInfo.phone} onChange={(event) => setPersonalInfo({ ...personalInfo, phone: event.target.value })} />
-                                <span>|</span>
-                                <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-48 underline" value={personalInfo.email} onChange={(event) => setPersonalInfo({ ...personalInfo, email: event.target.value })} />
-                                <span>|</span>
-                                <input className="outline-none bg-transparent hover:bg-gray-100 text-center w-56 underline" value={personalInfo.linkedin} onChange={(event) => setPersonalInfo({ ...personalInfo, linkedin: event.target.value })} />
+                <div className={`flex-1 overflow-y-auto p-12 ${previewMode === "latex" ? "pt-28" : ""} flex justify-center items-start`}>
+                    {previewMode === "latex" ? (
+                        <div className="w-full max-w-[850px] flex flex-col gap-3">
+                            <div className="flex items-start justify-between gap-3 flex-wrap">
+                                <p className="text-xs text-app-textMuted max-w-[460px]">
+                                    Jake's-template LaTeX for your current selection. Edit it and click Apply —
+                                    keep the <code className="text-app-text">\section{"{...}"}</code> headings so entries can be parsed.
+                                    Applying replaces the currently included items; unchecked library items are kept.
+                                </p>
+                                <div className="flex gap-2 shrink-0">
+                                    <button onClick={() => { setLatexDraft(currentLatex); setLatexError(""); }} className="text-xs bg-[#1C1C1E] border border-app-border hover:bg-[#2C2C2E] px-3 py-2 rounded-lg font-medium transition-colors">
+                                        Reload Current
+                                    </button>
+                                    <button onClick={handleApplyLatex} className="text-xs bg-white text-black font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+                                        Apply to Resume
+                                    </button>
+                                </div>
                             </div>
+                            {latexError && <p className="text-xs text-red-400">{latexError}</p>}
+                            <textarea
+                                value={latexDraft}
+                                onChange={(event) => setLatexDraft(event.target.value)}
+                                spellCheck={false}
+                                className="w-full min-h-[850px] bg-[#0d0d0d] text-gray-200 font-mono text-xs border border-app-border rounded-xl p-4 focus:outline-none focus:border-app-textMuted"
+                            />
                         </div>
-
-                        <div>
-                            <h2 className="text-xl resume-caps border-b border-black mb-2">Experience</h2>
-                            <div className="space-y-4">
-                                {selectedJobs.map((job) => {
-                                    const activeVariant = job.variants.find((variant) => variant.id === job.selectedVariantId);
-                                    const bullets = activeVariant ? activeVariant.bullets.split("\n") : [];
-
-                                    return (
-                                        <div key={`prev-${job.id}`}>
-                                            <div className="flex justify-between items-end mb-1">
-                                                <h3 className="font-bold text-md leading-tight">{job.title}</h3>
-                                                <span className="italic text-sm">{job.duration}</span>
-                                            </div>
-                                            <div className="flex justify-between items-start mb-1">
-                                                <p className="italic text-sm">{job.company}</p>
-                                            </div>
-                                            <ul className="list-disc pl-5 text-sm space-y-1">
-                                                {bullets.map((bullet, index) => bullet.trim() && <li key={index}>{bullet}</li>)}
-                                            </ul>
-                                        </div>
-                                    );
-                                })}
-
-                                {selectedJobs.length === 0 && (
-                                    <p className="text-gray-500 italic text-center py-10">Select jobs from the sidebar to populate the resume.</p>
-                                )}
-                            </div>
+                    ) : (
+                        <div className="bg-white text-black w-full max-w-[850px] min-h-[1100px] shadow-2xl p-12 resume-preview relative">
+                            {previewMode === "original" && resumeState?.originalPreview ? (
+                                <OriginalResumePreview resumeState={resumeState} fallbackResume={structuredResume} />
+                            ) : (
+                                <>
+                                    <StructuredResumePreview
+                                        resume={structuredResume}
+                                        personalInfo={personalInfo}
+                                        onPersonalInfoChange={setPersonalInfo}
+                                    />
+                                    {!hasIncludedContent && (
+                                        <p className="text-gray-500 italic text-center py-10">
+                                            Check items in the library on the left to build your resume.
+                                        </p>
+                                    )}
+                                </>
+                            )}
+                            {debugMode && resumeState?.structuredResume && (
+                                <details className="mt-8 resume-preview-sans text-xs whitespace-pre-wrap border-t border-gray-300 pt-4">
+                                    <summary className="cursor-pointer font-bold">Parser Debug</summary>
+                                    <h3 className="font-bold mt-3">Detected Sections</h3>
+                                    <pre>{JSON.stringify(resumeState.sectionBoundaries || {}, null, 2)}</pre>
+                                    <h3 className="font-bold mt-3">Structured JSON</h3>
+                                    <pre>{JSON.stringify(resumeState.structuredResume, null, 2)}</pre>
+                                    <h3 className="font-bold mt-3">Generated LaTeX</h3>
+                                    <pre>{resumeState.generatedLatex}</pre>
+                                    <h3 className="font-bold mt-3">Raw Text</h3>
+                                    <pre>{resumeState.rawText}</pre>
+                                </details>
+                            )}
                         </div>
-                        </>
-                        )}
-                        {debugMode && resumeState?.structuredResume && (
-                            <details className="mt-8 resume-preview-sans text-xs whitespace-pre-wrap border-t border-gray-300 pt-4">
-                                <summary className="cursor-pointer font-bold">Parser Debug</summary>
-                                <h3 className="font-bold mt-3">Detected Sections</h3>
-                                <pre>{JSON.stringify(resumeState.sectionBoundaries || {}, null, 2)}</pre>
-                                <h3 className="font-bold mt-3">Structured JSON</h3>
-                                <pre>{JSON.stringify(resumeState.structuredResume, null, 2)}</pre>
-                                <h3 className="font-bold mt-3">Generated LaTeX</h3>
-                                <pre>{resumeState.generatedLatex}</pre>
-                                <h3 className="font-bold mt-3">Raw Text</h3>
-                                <pre>{resumeState.rawText}</pre>
-                            </details>
-                        )}
-                    </div>
+                    )}
                 </div>
             </div>
         </div>

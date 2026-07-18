@@ -1,4 +1,4 @@
-const AuthPage = ({ supabaseClient, onResetConfig }) => {
+const AuthPage = ({ supabaseClient, onResetConfig, onLocalMode }) => {
     const [error, setError] = React.useState("");
     const [loading, setLoading] = React.useState(false);
 
@@ -45,9 +45,12 @@ const AuthPage = ({ supabaseClient, onResetConfig }) => {
 
                 {error && <p className="text-xs text-red-400 font-medium text-center">{error}</p>}
 
-                <div className="text-center">
+                <div className="text-center space-x-4">
                     <button type="button" onClick={onResetConfig} className="text-xs text-app-textMuted hover:text-white underline">
                         Change Supabase project
+                    </button>
+                    <button type="button" onClick={onLocalMode} className="text-xs text-app-textMuted hover:text-white underline">
+                        Continue without an account
                     </button>
                 </div>
             </div>

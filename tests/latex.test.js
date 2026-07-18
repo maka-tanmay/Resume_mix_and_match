@@ -83,6 +83,12 @@ assert(orderOf("\\section{Education}") < orderOf("\\section{Experience}"));
 assert(orderOf("\\section{Experience}") < orderOf("\\section{Projects}"));
 assert(orderOf("\\section{Projects}") < orderOf("\\section{Technical Skills}"));
 
+// A custom sectionOrder overrides the default (mix and match sections)
+const reordered = generateStructuredLatex({ ...resume, sectionOrder: ["experience", "projects", "education", "skills"] });
+assert(reordered.indexOf("\\section{Experience}") < reordered.indexOf("\\section{Education}"), "sectionOrder must reorder sections");
+assert(reordered.indexOf("\\section{Projects}") < reordered.indexOf("\\section{Education}"));
+assert(reordered.indexOf("\\section{Education}") < reordered.indexOf("\\section{Technical Skills}"));
+
 // --- HTML export mirrors the template ---
 const html = generateStandaloneHtml(resume);
 assert(html.includes("<!DOCTYPE html>"));

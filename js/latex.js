@@ -192,40 +192,34 @@ ${entries.map((entry) => (isProject ? renderProjectEntryLatex(entry) : renderExp
 `;
 };
 
-// Section order follows Jake's template: Education, Experience, Projects, then the rest.
+// Canonical section keys; default order follows Jake's template
+// (Education, Experience, Projects, the rest, Skills last).
+const RESUME_SECTION_KEYS = ["education", "experience", "projects", "research", "leadership", "skills"];
+
+// A resume may carry its own sectionOrder (mix-and-match); unknown keys are
+// dropped and missing keys appended so every section always renders once.
+const resolveSectionOrder = (resume) => {
+    const requested = Array.isArray(resume?.sectionOrder)
+        ? resume.sectionOrder.filter((key) => RESUME_SECTION_KEYS.includes(key))
+        : [];
+    return [...requested, ...RESUME_SECTION_KEYS.filter((key) => !requested.includes(key))];
+};
+
+const LATEX_SECTION_RENDERERS = {
+    education: (resume) => renderEducationLatex(resume.education),
+    experience: (resume) => renderEntriesLatex("Experience", resume.experience),
+    projects: (resume) => renderEntriesLatex("Projects", resume.projects, true),
+    research: (resume) => renderEntriesLatex("Research", resume.research),
+    leadership: (resume) => renderEntriesLatex("Leadership", resume.leadership),
+    skills: (resume) => renderSkillsLatex(resume.skills),
+};
+
 const generateStructuredLatex = (resume) => [
     latexPreamble(),
     renderHeaderLatex(resume.basics || {}),
-    renderEducationLatex(resume.education),
-    renderEntriesLatex("Experience", resume.experience),
-    renderEntriesLatex("Projects", resume.projects, true),
-    renderEntriesLatex("Research", resume.research),
-    renderEntriesLatex("Leadership", resume.leadership),
-    renderSkillsLatex(resume.skills),
+    ...resolveSectionOrder(resume).map((key) => LATEX_SECTION_RENDERERS[key](resume)),
     "\\end{document}",
 ].filter(Boolean).join("\n");
-
-const generateLatex = (personalInfo, selectedJobs) => {
-    const structuredResume = {
-        basics: personalInfo,
-        experience: selectedJobs.map((job) => {
-            const activeVariant = job.variants.find((variant) => variant.id === job.selectedVariantId);
-            return {
-                title: job.title,
-                company: job.company,
-                location: "",
-                dates: job.duration,
-                bullets: activeVariant ? activeVariant.bullets.split("\n").filter(Boolean) : [],
-            };
-        }),
-        education: [],
-        skills: [],
-        projects: [],
-        research: [],
-        leadership: [],
-    };
-    return generateStructuredLatex(structuredResume);
-};
 
 const escapeHtml = (value) =>
     String(value || "")
@@ -254,18 +248,32 @@ const renderHtmlEntries = (title, entries = [], isProject = false) => {
     `).join("")}</section>`;
 };
 
+const renderHtmlEducation = (education = []) =>
+    education.length
+        ? `<section><h2>Education</h2>${education.map((item) => `<article><header><strong>${escapeHtml(item.school)}</strong><span>${escapeHtml(item.location)}</span></header><div class="subheader"><em>${escapeHtml(item.degree)}</em><em>${escapeHtml(item.dates)}</em></div></article>`).join("")}</section>`
+        : "";
+
+const renderHtmlSkills = (skills = []) =>
+    skills.length
+        ? `<section><h2>Technical Skills</h2>${skills.map((skill) => `<p class="skill-row"><strong>${escapeHtml(skill.category)}:</strong> ${escapeHtml((skill.items || []).join(", "))}</p>`).join("")}</section>`
+        : "";
+
+const HTML_SECTION_RENDERERS = {
+    education: (resume) => renderHtmlEducation(resume.education),
+    experience: (resume) => renderHtmlEntries("Experience", resume.experience),
+    projects: (resume) => renderHtmlEntries("Projects", resume.projects, true),
+    research: (resume) => renderHtmlEntries("Research", resume.research),
+    leadership: (resume) => renderHtmlEntries("Leadership", resume.leadership),
+    skills: (resume) => renderHtmlSkills(resume.skills),
+};
+
 const generateStructuredHtml = (resume) => `
 <main class="resume">
     <header>
         <h1>${escapeHtml(resume.basics?.name)}</h1>
         <p>${[resume.basics?.phone, resume.basics?.email, resume.basics?.linkedin, resume.basics?.github, resume.basics?.portfolio].filter(Boolean).map(escapeHtml).join(" | ")}</p>
     </header>
-    ${resume.education?.length ? `<section><h2>Education</h2>${resume.education.map((item) => `<article><header><strong>${escapeHtml(item.school)}</strong><span>${escapeHtml(item.location)}</span></header><div class="subheader"><em>${escapeHtml(item.degree)}</em><em>${escapeHtml(item.dates)}</em></div></article>`).join("")}</section>` : ""}
-    ${renderHtmlEntries("Experience", resume.experience)}
-    ${renderHtmlEntries("Projects", resume.projects, true)}
-    ${renderHtmlEntries("Research", resume.research)}
-    ${renderHtmlEntries("Leadership", resume.leadership)}
-    ${resume.skills?.length ? `<section><h2>Technical Skills</h2>${resume.skills.map((skill) => `<p class="skill-row"><strong>${escapeHtml(skill.category)}:</strong> ${escapeHtml((skill.items || []).join(", "))}</p>`).join("")}</section>` : ""}
+    ${resolveSectionOrder(resume).map((key) => HTML_SECTION_RENDERERS[key](resume)).filter(Boolean).join("\n    ")}
 </main>`;
 
 // Standalone export styled to match Jake's template output: Computer Modern,

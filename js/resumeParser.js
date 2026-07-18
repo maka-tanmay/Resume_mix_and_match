@@ -12,7 +12,7 @@ const SECTION_ALIASES = {
     awards: [/^(awards|certifications|honors|achievements)$/i],
 };
 
-const DATE_PATTERN = /((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?)\s*(-|–|—|to)\s*((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|Present|Current|\d{4})|Expected\s+(May|Jun|Dec|August|December)?\s*\d{4}|\b(20\d{2}|19\d{2})\b/i;
+const DATE_PATTERN = /((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?)\s*(-|–|—|to)\s*((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|Present|Current|\d{4})|Expected\s+(May|Jun|Dec|August|December)?\s*\d{4}|\b(20\d{2}|19\d{2})\s*(-|–|—|to)\s*((20\d{2}|19\d{2})|Present|Current)\b|\b(20\d{2}|19\d{2})\b/i;
 const BULLET_PATTERN = /^([•●▪◦*-])\s*/;
 
 const emptyStructuredResume = () => ({
@@ -170,28 +170,57 @@ const readFileAsDataUrl = (file) =>
 
 const stripLatex = (source) =>
     source
-        .replace(/%.*$/gm, "")
-        .replace(/\\(section|subsection|textbf|textit|emph)\*?\{([^}]*)\}/g, "\n$2\n")
+        // Strip comments, but keep escaped percents (\% is a literal % in LaTeX).
+        .replace(/(^|[^\\])%.*$/gm, "$1")
+        // Drop the preamble and everything after \end{document} — otherwise
+        // "article", "document", package names, etc. leak in as resume text
+        // (and the preamble's first junk line gets parsed as the name).
+        .replace(/^[\s\S]*?\\begin\{document\}/, "")
+        .replace(/\\end\{document\}[\s\S]*$/, "")
+        .replace(/\\(begin|end)\{[^}]*\}(?:\[[^\]]*\])?/g, "\n")
+        .replace(/\\(documentclass|usepackage|input|pagestyle|urlstyle|vspace|hspace|addtolength|setlength|titleformat|fancyhf|fancyfoot|color)\*?(?:\[[^\]]*\])?\{[^}]*\}/g, "\n")
+        // Section titles become standalone lines; inline styling keeps its text in place
+        // (so "\textbf{Languages}{: Python}" stays one parseable line).
+        .replace(/\\(section|subsection)\*?\{([^}]*)\}/g, "\n$2\n")
+        .replace(/\\(textbf|textit|emph|underline)\*?\{([^}]*)\}/g, "$2")
         .replace(/\\href\{[^}]*\}\{([^}]*)\}/g, "$1")
+        // Jake's-template heading macros → the two-line "title | dates" /
+        // "org | location" shape the section parsers expect. Runs after inline
+        // styling so the arguments no longer contain nested braces.
+        .replace(/\\resumeSubheading\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/g, "\n$1 | $2\n$3 | $4\n")
+        .replace(/\\resumeProjectHeading\s*\{([^}]*)\}\s*\{([^}]*)\}/g, "\n$1 $2\n")
+        // Jake's-template bullet macros (this app's own .tex export) and plain \item.
+        .replace(/\\(resumeItem|resumeSubItem)\s*\{/g, "\n• {")
         .replace(/\\item\s*/g, "\n• ")
+        .replace(/\\\\/g, "\n")
         .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?/g, " ")
-        .replace(/[{}]/g, " ")
-        .replace(/\\\\/g, "\n");
+        // Preserve escaped dollars through math-delimiter removal ($|$, $...$).
+        .replace(/\\\$/g, "\u0001")
+        .replace(/[{}$~]/g, " ")
+        .replace(/\u0001/g, "$")
+        // Remaining LaTeX escapes become their literal characters.
+        .replace(/\\([%&#_])/g, "$1");
 
+// Text sources have no geometry, but wrapped bullets still need merging —
+// mergeWrappedBullets has a text-mode heuristic for x0 === 0 lines.
 const normalizeTextLines = (text) =>
-    text
-        .split(/\r?\n/)
-        .map((line, index) => ({
-            text: line.replace(/\s+/g, " ").trim(),
-            x0: 0,
-            y0: -index,
-            x1: 0,
-            y1: -index,
-            fontSize: 10,
-            bold: false,
-            page: 1,
-        }))
-        .filter((line) => line.text);
+    mergeWrappedBullets(
+        text
+            .split(/\r?\n/)
+            .map((line, index) => ({
+                text: line.replace(/\s+/g, " ").trim(),
+                x0: 0,
+                y0: -index,
+                x1: 0,
+                y1: -index,
+                fontSize: 10,
+                bold: false,
+                page: 1,
+            }))
+            // Drop empty lines and orphaned bullet markers (LaTeX stripping can
+            // leave a lone "•" when \item wraps a group rather than text).
+            .filter((line) => line.text && line.text !== "•")
+    );
 
 const normalizeExtractedLines = (lines) => {
     const normalized = lines
@@ -216,11 +245,24 @@ const normalizeExtractedLines = (lines) => {
     return mergeWrappedBullets(merged);
 };
 
+const isBulletContinuation = (previous, line) => {
+    if (!previous?.isBullet) return false;
+    if (BULLET_PATTERN.test(line.text) || isSectionHeader(line)) return false;
+    // PDF lines carry geometry: a continuation is indented past the bullet marker.
+    if (previous.x0 !== 0 || line.x0 !== 0) return line.x0 > previous.x0 + 6;
+    // Plain-text lines (x0 === 0) have no geometry. Merge when the bullet
+    // clearly continues mid-sentence and the next line doesn't start a new
+    // entry (entry headers carry dates or "name | tech" pipes).
+    if (/[.!?]$/.test(previous.text)) return false;
+    if (DATE_PATTERN.test(line.text) || line.text.includes(" | ")) return false;
+    return true;
+};
+
 const mergeWrappedBullets = (lines) => {
     const merged = [];
     lines.forEach((line) => {
         const previous = merged[merged.length - 1];
-        if (previous?.isBullet && !BULLET_PATTERN.test(line.text) && !isSectionHeader(line) && line.x0 > previous.x0 + 6) {
+        if (isBulletContinuation(previous, line)) {
             previous.text = `${previous.text} ${line.text}`.replace(/\s+/g, " ");
         } else {
             merged.push({
@@ -233,18 +275,51 @@ const mergeWrappedBullets = (lines) => {
     return merged;
 };
 
-const isSectionHeader = (line) => {
-    const text = line.text.trim();
-    if (text.length > 45) return false;
-    return Object.values(SECTION_ALIASES).flat().some((pattern) => pattern.test(text));
+// Heading-shaped: short, few words, no bullets/dates/pipes, not a "Label: data"
+// row, and either ALL CAPS or Title Case. Combined with the keyword patterns
+// below this auto-identifies headings the strict aliases don't list, e.g.
+// "SELECTED SOFTWARE PROJECTS" or "VOLUNTEER EXPERIENCE".
+const SECTION_HEADING_STOPWORDS = new Set(["and", "&", "of", "the", "in", "to"]);
+
+const looksLikeSectionHeading = (text) => {
+    if (!text || text.length > 45) return false;
+    if (BULLET_PATTERN.test(text) || DATE_PATTERN.test(text)) return false;
+    if (text.includes("|") || /:\s*\S/.test(text) || /[.!?;]$/.test(text)) return false;
+    const words = text.split(/\s+/).filter(Boolean);
+    if (!words.length) return false;
+    const isAllCaps = text === text.toUpperCase() && /[A-Z]/.test(text);
+    if (isAllCaps) return words.length <= 5;
+    const contentWords = words.filter((word) => !SECTION_HEADING_STOPWORDS.has(word.toLowerCase()));
+    return words.length <= 4 && contentWords.length > 0 && contentWords.every((word) => /^[A-Z]/.test(word));
 };
 
+// Checked in order — first match wins, so specific sections (research,
+// projects, leadership) are tested before the catch-all "experience"
+// ("PROJECT EXPERIENCE" → projects, "VOLUNTEER EXPERIENCE" → leadership).
+const SECTION_KEYWORD_PATTERNS = [
+    ["education", /\beducation\b|\bacademic (background|history|qualifications)\b/i],
+    ["research", /\bresearch\b|\bpublications?\b/i],
+    ["projects", /\bprojects?\b/i],
+    ["leadership", /\bleadership\b|\bactivities\b|\bvolunteer(ing|s)?\b|\bextracurriculars?\b|\binvolvement\b/i],
+    ["skills", /\bskills?\b|\btechnologies\b|\bcompetenc(y|ies)\b|\bproficienc(y|ies)\b|\btech stack\b/i],
+    ["awards", /\bawards?\b|\bhono(u)?rs?\b|\bcertifications?\b|\bachievements?\b|\bcertificates?\b/i],
+    ["experience", /\bexperience\b|\bemployment\b|\bwork history\b|\binternships?\b|\bcareer\b/i],
+];
+
 const getSectionKey = (text) => {
+    const trimmed = String(text || "").trim().replace(/:$/, "").trim();
+    if (!trimmed) return null;
     for (const [key, patterns] of Object.entries(SECTION_ALIASES)) {
-        if (patterns.some((pattern) => pattern.test(text.trim()))) return key;
+        if (patterns.some((pattern) => pattern.test(trimmed))) return key;
+    }
+    if (!looksLikeSectionHeading(trimmed)) return null;
+    for (const [key, pattern] of SECTION_KEYWORD_PATTERNS) {
+        if (pattern.test(trimmed)) return key;
     }
     return null;
 };
+
+const isSectionHeader = (line) => getSectionKey(line.text) !== null;
 
 const splitIntoSections = (lines) => {
     const sections = { header: [] };
@@ -284,33 +359,38 @@ const parseHeader = (lines) => {
     const textLines = lines.map((line) => line.text);
     const joined = textLines.join(" | ");
     resume.basics.email = joined.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
-    resume.basics.phone = joined.match(/(\+?\d[\d\s().-]{7,}\d)/)?.[0] || "";
+    resume.basics.phone = joined.match(/(\+?\(?\d[\d\s().-]{7,}\d)/)?.[0] || "";
     resume.basics.linkedin = joined.match(/linkedin\.com\/[^\s|,]+/i)?.[0] || "";
     resume.basics.github = joined.match(/github\.com\/[^\s|,]+/i)?.[0] || "";
     resume.basics.portfolio = joined.match(/https?:\/\/(?!.*linkedin|.*github)[^\s|,]+/i)?.[0] || "";
 
-    const nameLine = textLines.find((line) => {
-        if (line.length > 80) return false;
-        if (line.includes("@") || /linkedin|github|https?:\/\//i.test(line)) return false;
-        if (/\d{3}/.test(line)) return false;
-        return /[A-Za-z]/.test(line);
-    });
+    const isContactLine = (line) =>
+        line.includes("@") || /linkedin|github|https?:\/\//i.test(line) || /\d{3}/.test(line);
+    const nameLine = textLines.find((line) => line.length <= 80 && !isContactLine(line) && /[A-Za-z]/.test(line));
     resume.basics.name = nameLine || defaultPersonalInfo.name;
-    resume.basics.headline = textLines.find((line) => line !== nameLine && !joined.includes(`${line} |`) && line.length < 100) || "";
+    resume.basics.headline = textLines.find((line) => line !== nameLine && !isContactLine(line) && line.length < 100) || "";
     return resume.basics;
 };
 
 const collectBullets = (lines, startIndex) => {
     const bullets = [];
     let index = startIndex;
-    while (index < lines.length) {
-        const text = lines[index].text;
-        if (!BULLET_PATTERN.test(text) && bullets.length) break;
-        if (!BULLET_PATTERN.test(text) && !bullets.length) break;
-        bullets.push(text.replace(BULLET_PATTERN, "").trim());
+    while (index < lines.length && BULLET_PATTERN.test(lines[index].text)) {
+        bullets.push(lines[index].text.replace(BULLET_PATTERN, "").trim());
         index += 1;
     }
     return { bullets, nextIndex: index };
+};
+
+// Wrapped project headers arrive as two lines from PDF extraction, e.g.
+// "Name | Python, NLP," + "LLMs, Gradio" — merge continuations back into the
+// header before splitting it into name | technologies.
+const isProjectHeaderContinuation = (headerText, nextText) => {
+    if (!nextText || BULLET_PATTERN.test(nextText) || DATE_PATTERN.test(nextText)) return false;
+    if (!headerText.includes("|") || nextText.includes("|")) return false;
+    if (getSectionKey(nextText)) return false;
+    if (/,\s*$/.test(headerText)) return true;
+    return nextText.length <= 40 && nextText.split(/\s+/).length <= 5;
 };
 
 const parseExperienceLike = (lines, type) => {
@@ -320,6 +400,30 @@ const parseExperienceLike = (lines, type) => {
     while (index < lines.length) {
         while (index < lines.length && BULLET_PATTERN.test(lines[index].text)) index += 1;
         if (index >= lines.length) break;
+
+        if (type === "projects") {
+            let headerText = lines[index].text;
+            let consumed = 1;
+            while (index + consumed < lines.length && isProjectHeaderContinuation(headerText, lines[index + consumed].text)) {
+                headerText = `${headerText} ${lines[index + consumed].text}`.replace(/\s+/g, " ");
+                consumed += 1;
+            }
+
+            const dates = extractDates(headerText);
+            // Split on the raw header: splitLocation would consume "| tech list"
+            // as a location and drop it.
+            const [namePart, ...techParts] = removeDates(headerText).split(/\s+\|\s+/);
+            const { bullets, nextIndex } = collectBullets(lines, index + consumed);
+            entries.push({
+                name: (namePart || "").trim(),
+                technologies: techParts.join(", ").split(/,\s*/).map((item) => item.trim()).filter(Boolean),
+                dates,
+                bullets,
+                confidence: bullets.length ? 0.75 : 0.45,
+            });
+            index = Math.max(nextIndex, index + consumed);
+            continue;
+        }
 
         const firstLine = lines[index]?.text || "";
         const secondLine = lines[index + 1]?.text || "";
@@ -332,26 +436,15 @@ const parseExperienceLike = (lines, type) => {
         const bulletStart = index + (hasSecondHeaderLine ? 2 : 1);
         const { bullets, nextIndex } = collectBullets(lines, bulletStart);
 
-        if (type === "projects") {
-            const [namePart, techPart] = firstSplit.main.split(/\s+\|\s+/);
-            entries.push({
-                name: namePart || firstSplit.main,
-                technologies: techPart ? techPart.split(/,\s*/).filter(Boolean) : [],
-                dates,
-                bullets,
-                confidence: bullets.length ? 0.75 : 0.45,
-            });
-        } else {
-            entries.push({
-                title: firstSplit.main,
-                company: secondSplit.main || "",
-                organization: secondSplit.main || "",
-                location: secondSplit.location || firstSplit.location,
-                dates,
-                bullets,
-                confidence: bullets.length && dates ? 0.8 : 0.5,
-            });
-        }
+        entries.push({
+            title: firstSplit.main,
+            company: secondSplit.main || "",
+            organization: secondSplit.main || "",
+            location: secondSplit.location || firstSplit.location,
+            dates,
+            bullets,
+            confidence: bullets.length && dates ? 0.8 : 0.5,
+        });
         index = Math.max(nextIndex, index + 1);
     }
 
@@ -413,19 +506,8 @@ const extractResumeLines = async (file, format) => {
     return normalizeTextLines(await readFileAsText(file));
 };
 
-const parseUploadedResume = async (file, format) => {
-    if (file.size > 10 * 1024 * 1024) {
-        throw new Error("Resume file is too large. Upload a file under 10 MB.");
-    }
-
-    const [lines, originalPreview] = await Promise.all([
-        extractResumeLines(file, format),
-        createOriginalPreview(file, format),
-    ]);
-    if (!lines.length) {
-        throw new Error("No readable text was found in this file. Try a text-based PDF, DOCX, or LaTeX file.");
-    }
-
+// Core pipeline shared by file uploads and the editable-LaTeX loop.
+const parseResumeLines = (lines) => {
     const sections = splitIntoSections(lines);
     const structuredResume = emptyStructuredResume();
     structuredResume.basics = parseHeader(sections.header || []);
@@ -442,8 +524,31 @@ const parseUploadedResume = async (file, format) => {
     return {
         structuredResume: validateStructuredResume(structuredResume),
         rawText: lines.map((line) => line.text).join("\n"),
-        rawLines: lines,
         sectionBoundaries: Object.fromEntries(Object.entries(sections).map(([key, value]) => [key, value.map((line) => line.text)])),
+    };
+};
+
+// Parses LaTeX source (e.g. the user's edits in the LaTeX panel) back into
+// structured resume JSON. Best-effort: works reliably on the Jake's-template
+// dialect this app generates.
+const parseLatexSource = (source) => parseResumeLines(normalizeTextLines(stripLatex(String(source || ""))));
+
+const parseUploadedResume = async (file, format) => {
+    if (file.size > 10 * 1024 * 1024) {
+        throw new Error("Resume file is too large. Upload a file under 10 MB.");
+    }
+
+    const [lines, originalPreview] = await Promise.all([
+        extractResumeLines(file, format),
+        createOriginalPreview(file, format),
+    ]);
+    if (!lines.length) {
+        throw new Error("No readable text was found in this file. Try a text-based PDF, DOCX, or LaTeX file.");
+    }
+
+    return {
+        ...parseResumeLines(lines),
+        rawLines: lines,
         originalPreview,
     };
 };

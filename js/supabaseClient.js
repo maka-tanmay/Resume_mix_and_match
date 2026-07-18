@@ -32,6 +32,19 @@ const clearSupabaseConfig = () => {
     localStorage.removeItem(SUPABASE_CONFIG_KEY);
 };
 
+// Supabase issues legacy JWT anon keys ("eyJ...") and, since 2025, publishable
+// keys ("sb_publishable_..."). Both are safe for the browser; secret keys are not.
+const validateSupabasePublicKey = (key) => {
+    if (!key) return "Enter your Supabase anon or publishable API key.";
+    if (key.startsWith("sb_secret_") || /^service_role/i.test(key)) {
+        return "That looks like a secret key. Use the anon/publishable key — secret keys must never be used in a browser.";
+    }
+    if (!key.startsWith("eyJ") && !key.startsWith("sb_publishable_")) {
+        return "That key looks invalid. Use the anon public key (starts with eyJ) or publishable key (starts with sb_publishable_).";
+    }
+    return "";
+};
+
 const createSupabaseClient = (config) => {
     const normalizedConfig = normalizeSupabaseConfig(config);
 
@@ -40,11 +53,12 @@ const createSupabaseClient = (config) => {
     }
 
     if (!normalizedConfig?.supabaseUrl || !normalizedConfig?.supabaseAnonKey) {
-        throw new Error("Supabase URL and anon public key are required.");
+        throw new Error("Supabase URL and API key are required.");
     }
 
-    if (!normalizedConfig.supabaseAnonKey.startsWith("eyJ")) {
-        throw new Error("Supabase anon public key looks invalid. It should start with eyJ.");
+    const keyError = validateSupabasePublicKey(normalizedConfig.supabaseAnonKey);
+    if (keyError) {
+        throw new Error(keyError);
     }
 
     return window.supabase.createClient(normalizedConfig.supabaseUrl, normalizedConfig.supabaseAnonKey, {

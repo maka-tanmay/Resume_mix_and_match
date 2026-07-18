@@ -17,7 +17,7 @@ const detectResumeFormat = (file) => {
     return "resume";
 };
 
-const ResumeUploadPage = ({ user, onResumeReady, onSignOut }) => {
+const ResumeUploadPage = ({ user, onResumeReady, onSignOut, signOutLabel = "Sign Out" }) => {
     const fileInput = React.useRef(null);
     const [error, setError] = React.useState("");
     const [loading, setLoading] = React.useState(false);
@@ -52,7 +52,7 @@ const ResumeUploadPage = ({ user, onResumeReady, onSignOut }) => {
         setError("");
         setLoading(true);
         try {
-            await onResumeReady({ personalInfo: defaultPersonalInfo, jobs: initialJobs });
+            await onResumeReady(createResumeStateFromSample());
         } catch (sampleError) {
             setError(sampleError.message || "Could not save the sample resume.");
         } finally {
@@ -71,7 +71,7 @@ const ResumeUploadPage = ({ user, onResumeReady, onSignOut }) => {
                     <div className="flex items-center gap-3">
                         <span className="text-xs text-app-textMuted hidden sm:inline">{user.email}</span>
                         <button onClick={onSignOut} className="text-xs bg-[#1C1C1E] border border-app-border hover:bg-red-950 hover:text-red-300 hover:border-red-900/50 px-3 py-1.5 rounded-lg font-medium transition-colors">
-                            Sign Out
+                            {signOutLabel}
                         </button>
                     </div>
                 </div>

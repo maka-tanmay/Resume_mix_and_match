@@ -1,4 +1,4 @@
-const SupabaseSetup = ({ initialError, onConfigSaved }) => {
+const SupabaseSetup = ({ initialError, onConfigSaved, onLocalMode }) => {
     const [supabaseUrl, setSupabaseUrl] = React.useState("");
     const [supabaseAnonKey, setSupabaseAnonKey] = React.useState("");
     const [error, setError] = React.useState(initialError || "");
@@ -20,13 +20,9 @@ const SupabaseSetup = ({ initialError, onConfigSaved }) => {
             return;
         }
 
-        if (!config.supabaseAnonKey) {
-            setError("Enter your Supabase anon public key.");
-            return;
-        }
-
-        if (!config.supabaseAnonKey.startsWith("eyJ")) {
-            setError("Enter the anon public key from Supabase. It should start with eyJ.");
+        const keyError = validateSupabasePublicKey(config.supabaseAnonKey);
+        if (keyError) {
+            setError(keyError);
             return;
         }
 
@@ -58,11 +54,11 @@ const SupabaseSetup = ({ initialError, onConfigSaved }) => {
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Anon Public Key</label>
+                        <label className="text-xs font-semibold text-app-textMuted uppercase tracking-wider">Anon / Publishable Key</label>
                         <textarea
                             required
                             rows="4"
-                            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                            placeholder="eyJhbGciOiJIUzI1... or sb_publishable_..."
                             className="w-full bg-[#0a0a0a] border border-app-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white transition-colors font-mono text-xs"
                             value={supabaseAnonKey}
                             onChange={(event) => {
@@ -78,6 +74,25 @@ const SupabaseSetup = ({ initialError, onConfigSaved }) => {
                         Save and Continue
                     </button>
                 </form>
+
+                <div className="flex items-center gap-3">
+                    <div className="flex-1 border-t border-app-border"></div>
+                    <span className="text-xs text-app-textMuted uppercase tracking-wider">or</span>
+                    <div className="flex-1 border-t border-app-border"></div>
+                </div>
+
+                <div className="space-y-2">
+                    <button
+                        type="button"
+                        onClick={onLocalMode}
+                        className="w-full bg-[#0a0a0a] border border-app-border text-white font-semibold py-3 rounded-xl hover:bg-app-cardHover transition-colors"
+                    >
+                        Continue without an account
+                    </button>
+                    <p className="text-xs text-app-textMuted text-center">
+                        No sign-in needed. Your resume is saved only in this browser.
+                    </p>
+                </div>
             </div>
         </div>
     );

@@ -2,15 +2,18 @@
 
 ## Overview
 
-The **Resume Mix & Match Formatter** is a single‑page web application that lets users build and customize professional resumes by selecting, ordering, and styling job experiences. It provides:
+The **Resume Mix & Match Formatter** is a single‑page web application built around a simple idea: every entry in your resumes — each job, project, degree, research role, leadership role, and skills row — becomes an item in a **library**. You mix and match items from that library into a resume and export it as Jake's-template LaTeX.
 
-- A **library** of job experiences on the left sidebar.
-- The ability to **add multiple variants** (different wording/tone) for each experience.
-- Drag‑and‑drop reordering of items.
-- Live preview of the formatted resume on the right.
-- Supabase Google authentication.
-- First-run resume upload flow supporting PDF, DOC/DOCX, and LaTeX files.
-- Supabase-backed resume persistence scoped by signed-in user.
+- A **library of all section types** on the left: Education, Experience, Projects, Research, Leadership, Technical Skills.
+- **Merge as many resumes as you want** — each import appends its parsed entries to the library, tagged with the source file.
+- **Manual entries** — add any item type by hand; edit every field inline.
+- **Wording variants** per entry (e.g. "Backend-focused" vs "Leadership-focused" bullets) with one active at a time.
+- **Mix and match** — check items in/out, move items up/down (buttons or drag), and reorder whole sections.
+- **Live preview** on the right, styled to match the compiled LaTeX output.
+- **Editable LaTeX** — view the generated LaTeX, edit it directly, and Apply to update the resume and library.
+- **Open in Overleaf** for a real compiled PDF in one click.
+- Optional Supabase Google authentication, or a **local-only mode** with no account.
+- Resume persistence per signed-in user (Supabase) or per browser (local mode).
 
 The app runs entirely in the browser with no build tools required and can be deployed to static-hosting platforms such as **Vercel**, **Netlify**, or GitHub Pages.
 
@@ -18,14 +21,16 @@ The app runs entirely in the browser with no build tools required and can be dep
 
 ## Features
 
-- **Add / edit job experiences** – company, title, duration, and bullet points.
-- **Create variants** for each experience (e.g., “Backend‑focused” vs “Leadership‑focused”).
-- **Select which experiences to include** in the final resume via checkboxes.
-- **Drag‑and‑drop** to reorder experiences.
-- **Live LaTeX export** – copy the generated LaTeX source to the clipboard.
-- **Supabase authentication** - sign in with Google.
-- **Resume upload onboarding** - new users can upload one resume file in PDF, DOC/DOCX, or LaTeX.
-- **Database persistence** - resume data is saved in Supabase per signed-in user.
+- **Section library** – every parsed or manual entry is a card with an include checkbox, ▲▼ reorder buttons, drag-and-drop, inline field editing, and a source tag showing which resume it came from.
+- **Import & merge** – the *Import Resume* button parses another PDF/DOCX/LaTeX file and appends its entries to the library (nothing is replaced).
+- **Variants** – entry-like items (experience, projects, research, leadership) hold multiple wording variants; the selected variant supplies the bullets.
+- **Section reordering** – move whole sections (e.g. put Projects before Experience); the preview, LaTeX, and HTML exports all honor the order.
+- **Editable LaTeX loop** – the LaTeX tab shows the Jake's-template source for your current selection. Edit it and *Apply to Resume*: the source is parsed back into structured entries which replace the currently included items (unchecked items are kept).
+- **Exports** – copy LaTeX, download `.tex` / HTML / Word-compatible `.doc`, print to PDF, or **Open in Overleaf** to compile the real PDF.
+- **Editable header** – name, phone, email, LinkedIn, GitHub, and portfolio are editable directly in the resume preview.
+- **Supabase authentication** – sign in with Google (legacy `eyJ...` anon keys and new `sb_publishable_...` keys both supported).
+- **Local-only mode** – click *Continue without an account* to use the app with no Supabase project; data stays in browser storage.
+- **Database persistence** – the full library is saved in Supabase per signed-in user (or locally in local mode). Pre-library saves are migrated automatically.
 - **Responsive UI** built with Tailwind CSS and custom dark‑mode styling.
 
 ---
@@ -34,13 +39,16 @@ The app runs entirely in the browser with no build tools required and can be dep
 
 Uploaded resumes are converted through a structured pipeline:
 
-1. **Extract** - PDF uses PDF.js text items with coordinates, DOCX uses Mammoth raw text, and LaTeX is read as text with common commands stripped.
+1. **Extract** - PDF uses PDF.js text items with coordinates, DOCX uses Mammoth raw text, and LaTeX is read as text with commands stripped (the Jake's-template macros this app generates round-trip losslessly).
 2. **Normalize** - whitespace is cleaned, PDF rows are ordered by page/y/x coordinates, and wrapped bullet lines are merged.
 3. **Detect sections** - common resume headings such as Education, Technical Skills, Experience, Projects, Research, and Leadership are detected before parsing.
 4. **Parse JSON** - each section is parsed into structured resume JSON with `basics`, `education`, `skills`, `experience`, `projects`, `research`, `leadership`, and `customSections`.
-5. **Preview** - PDF uploads are shown as the original PDF, DOCX uploads are shown as HTML converted from the original DOCX, and the edited output can be viewed separately.
-6. **Render** - edited HTML/LaTeX/DOC downloads are generated from structured JSON, not from raw extracted text.
-7. **Persist** - Supabase stores the original file metadata, original preview payload, raw extracted text, extracted line data, section boundaries, structured JSON, generated HTML, generated LaTeX, and update timestamp.
+5. **Library** - every parsed entry becomes a library item (`included`, `source`, editable fields, wording variants). Imports merge into the existing library.
+6. **Preview** - PDF uploads are shown as the original PDF, DOCX uploads are shown as HTML converted from the original DOCX, and the edited output can be viewed separately.
+7. **Render** - the preview, LaTeX, HTML, and DOC outputs are all projections of (personal info + library selection + section order) — never of raw extracted text.
+8. **Persist** - Supabase (or browser storage in local mode) stores the library, personal info, section order, original file metadata, original preview payload, raw extracted text, section boundaries, and the generated LaTeX/HTML.
+
+The **LaTeX tab** closes the loop in the other direction: its *Apply to Resume* button runs the same LaTeX-stripping parser on your edits and replaces the currently included items with the result, so you can edit either the structured cards or the LaTeX source — whichever is easier.
 
 Development debugging is available by opening:
 
@@ -59,7 +67,7 @@ Current export support includes LaTeX source, HTML, Word-compatible `.doc`, and 
 ### Prerequisites
 
 - A modern web browser (Chrome, Firefox, Safari, Edge).
-- A Supabase project with Google authentication enabled.
+- Optional: a Supabase project with Google authentication enabled. Without one, use **Continue without an account** on the first screen (data is stored in the browser only).
 
 ### 1. Clone the repository
 
@@ -68,13 +76,15 @@ git clone https://github.com/maka-tanmay/Resume_mix_and_match.git
 cd Resume_mix_and_match
 ```
 
-### 2. Create a Supabase project
+### 2. Create a Supabase project (optional)
+
+Skip this section entirely if you use local-only mode.
 
 1. Go to https://app.supabase.com and create a project.
 2. In **Authentication → Providers**, enable **Google**.
 3. In **Project Settings → API**, copy:
    - Project URL
-   - `anon` public API key
+   - `anon` public API key (`eyJ...`) or publishable key (`sb_publishable_...`)
 4. In **Authentication → URL Configuration**, add your local and deployed app URLs to redirect URLs.
 5. In Supabase's Google provider settings, copy the callback URL and add it to Google Cloud as an authorized redirect URI.
 6. In **SQL Editor**, run:
@@ -130,7 +140,7 @@ python -m http.server 8000
 npm test
 ```
 
-When the app opens, paste the Supabase project URL and anon public key. The app stores these values in local browser storage.
+When the app opens, either paste the Supabase project URL and anon/publishable key, or click **Continue without an account** for local-only use. The app stores these values in local browser storage.
 
 ### 4. Deploy (optional)
 
@@ -142,17 +152,17 @@ Deploy the folder to any static‑hosting provider. When deploying to **Vercel**
 
 ## Usage Guide
 
-1. **Connect Supabase** by entering the project URL and anon public key.
-2. **Sign in with Google**.
-3. **Upload a resume** as PDF, DOC/DOCX, or LaTeX, or start from sample content.
-4. **Add experiences** via the “+” button in the sidebar.
-5. **Create variants** by clicking *Add Variant* on a job card.
-6. **Select/Deselect** experiences with the checkboxes.
-7. **Reorder** by dragging the drag-handle icon.
-8. The **right panel** shows a live preview of the resume.
-9. Toggle **Original** / **Edited** to compare the uploaded resume preview with the edited structured output.
-10. Use **Copy as LaTeX**, **Download .tex**, **Download HTML**, **Download DOC**, or **Print PDF** to export the edited output.
-11. Use **Reset** to return to the sample content.
+1. **Connect Supabase** by entering the project URL and anon/publishable key — or choose **Continue without an account**.
+2. **Sign in with Google** (skipped in local mode).
+3. **Upload a resume** as PDF, DOC/DOCX, or LaTeX, or start from sample content. Every entry lands in the left-hand library.
+4. **Import more resumes** with *＋ Import Resume* — their entries are appended to the library, tagged with the file name.
+5. **Add items manually** with the ＋ button on any section header; click a card to expand and edit its fields.
+6. **Create variants** on entry cards to keep alternative wordings; the selected variant is what exports.
+7. **Mix and match**: check items in/out, reorder items with ▲▼ or drag, and reorder whole sections with the header arrows.
+8. The **right panel** live-previews the selection; name and contact lines are editable in place.
+9. Toggle **Original** / **Preview** / **LaTeX**. In the LaTeX tab you can edit the source and *Apply to Resume* to update the library from your LaTeX edits.
+10. Export with **Copy LaTeX**, **.tex**, **HTML**, **DOC**, **Print PDF**, or **Open in Overleaf** (compiles the real PDF).
+11. Use **Reset** to return to the sample content, or **Start Over** to clear everything and upload fresh.
 
 ---
 

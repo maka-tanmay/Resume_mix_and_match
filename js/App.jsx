@@ -1,4 +1,10 @@
+const LOCAL_USER = {
+    id: "local",
+    email: "Local session (this browser)",
+};
+
 const App = () => {
+    const [localMode, setLocalMode] = React.useState(isLocalModeEnabled());
     const [supabaseConfig, setSupabaseConfig] = React.useState(loadSupabaseConfig());
     const [supabaseClient, setSupabaseClient] = React.useState(null);
     const [session, setSession] = React.useState(null);
@@ -10,8 +16,11 @@ const App = () => {
     const [resumeChecked, setResumeChecked] = React.useState(false);
     const [resumeError, setResumeError] = React.useState("");
 
+    const activeUser = localMode ? LOCAL_USER : session?.user || null;
+    const activeUserId = activeUser?.id || null;
+
     React.useEffect(() => {
-        if (!supabaseConfig) {
+        if (localMode || !supabaseConfig) {
             setSupabaseClient(null);
             setSession(null);
             setLoadingAuth(false);
@@ -26,17 +35,19 @@ const App = () => {
             setLoadingAuth(true);
             setSetupError("");
 
-            client.auth.getSession().then(({ data, error }) => {
-                if (error) {
+            client.auth
+                .getSession()
+                .then(({ data, error }) => {
+                    if (error) throw error;
+                    setSession(data.session);
+                })
+                .catch((error) => {
                     clearSupabaseConfig();
                     setSupabaseConfig(null);
                     setSupabaseClient(null);
-                    setSetupError(error.message);
-                } else {
-                    setSession(data.session);
-                }
-                setLoadingAuth(false);
-            });
+                    setSetupError(error.message || "Could not check the Supabase session.");
+                })
+                .finally(() => setLoadingAuth(false));
 
             const { data } = client.auth.onAuthStateChange((_event, nextSession) => {
                 setSession((currentSession) => {
@@ -65,10 +76,11 @@ const App = () => {
         return () => {
             authSubscription?.unsubscribe();
         };
-    }, [supabaseConfig]);
+    }, [supabaseConfig, localMode]);
 
     const handleConfigSaved = (config) => {
         saveSupabaseConfig(config);
+        setSetupError("");
         setSupabaseConfig(config);
     };
 
@@ -83,14 +95,38 @@ const App = () => {
         setSetupError("");
     };
 
+    const handleEnterLocalMode = () => {
+        setLocalModeEnabled(true);
+        setResumeState(null);
+        setResumeChecked(false);
+        setResumeError("");
+        setLocalMode(true);
+    };
+
+    const handleExitLocalMode = () => {
+        setLocalModeEnabled(false);
+        setResumeState(null);
+        setResumeChecked(false);
+        setResumeError("");
+        setLocalMode(false);
+    };
+
+    const handleSignOut = () => {
+        if (localMode) {
+            handleExitLocalMode();
+            return;
+        }
+        supabaseClient?.auth.signOut();
+    };
+
     React.useEffect(() => {
-        if (!supabaseClient || !session?.user?.id) {
+        if (!activeUserId || (!localMode && !supabaseClient)) {
             setResumeChecked(false);
             return;
         }
 
         let cancelled = false;
-        const userId = session.user.id;
+        const userId = activeUserId;
 
         const loadResume = async () => {
             setLoadingResume(true);
@@ -98,23 +134,29 @@ const App = () => {
             setResumeError("");
 
             try {
-                let nextResumeState = await loadRemoteResumeState(supabaseClient, userId);
+                let nextResumeState;
 
-                if (!nextResumeState) {
-                    const cachedState = loadResumeState(userId);
-                    if (cachedState) {
-                        await saveRemoteResumeState(supabaseClient, userId, cachedState);
-                        nextResumeState = cachedState;
+                if (localMode) {
+                    nextResumeState = loadResumeState(userId);
+                } else {
+                    nextResumeState = await loadRemoteResumeState(supabaseClient, userId);
+
+                    if (!nextResumeState) {
+                        const cachedState = loadResumeState(userId);
+                        if (cachedState) {
+                            await saveRemoteResumeState(supabaseClient, userId, cachedState);
+                            nextResumeState = cachedState;
+                        }
                     }
                 }
 
                 if (!cancelled) {
-                    setResumeState(nextResumeState);
+                    setResumeState(nextResumeState ? migrateResumeState(nextResumeState) : null);
                 }
             } catch (error) {
                 const cachedState = loadResumeState(userId);
                 if (!cancelled) {
-                    setResumeState(cachedState);
+                    setResumeState(cachedState ? migrateResumeState(cachedState) : null);
                     setResumeError(error.message || "Could not load resume data from Supabase.");
                 }
             } finally {
@@ -130,42 +172,54 @@ const App = () => {
         return () => {
             cancelled = true;
         };
-    }, [supabaseClient, session?.user?.id, resumeReadyVersion]);
+    }, [localMode, supabaseClient, activeUserId, resumeReadyVersion]);
 
     const persistResumeState = async (nextResumeState) => {
-        const userId = session.user.id;
         setResumeState(nextResumeState);
         setResumeChecked(true);
-        saveResumeState(nextResumeState, userId);
-        await saveRemoteResumeState(supabaseClient, userId, nextResumeState);
+        const cached = saveResumeState(nextResumeState, activeUserId);
+
+        if (!localMode) {
+            await saveRemoteResumeState(supabaseClient, activeUserId, nextResumeState);
+        } else if (!cached) {
+            throw new Error("Could not save to browser storage (it is likely full). Changes exist only in this tab.");
+        }
     };
 
     const clearCurrentResume = async () => {
-        const userId = session.user.id;
-        clearResumeState(userId);
+        clearResumeState(activeUserId);
         setResumeState(null);
         setResumeChecked(true);
-        await clearRemoteResumeState(supabaseClient, userId);
+
+        if (!localMode) {
+            try {
+                await clearRemoteResumeState(supabaseClient, activeUserId);
+            } catch (error) {
+                setResumeError(error.message || "Could not delete the resume from Supabase.");
+            }
+        }
         setResumeReadyVersion((version) => version + 1);
     };
 
-    if (!supabaseConfig || setupError) {
-        return <SupabaseSetup initialError={setupError} onConfigSaved={handleConfigSaved} />;
-    }
+    if (!localMode) {
+        if (!supabaseConfig || setupError) {
+            return <SupabaseSetup initialError={setupError} onConfigSaved={handleConfigSaved} onLocalMode={handleEnterLocalMode} />;
+        }
 
-    if (loadingAuth || !supabaseClient) {
-        return (
-            <div className="min-h-screen bg-app-bg flex items-center justify-center">
-                <div className="text-center space-y-3">
-                    <IconCloudSync />
-                    <p className="text-sm text-app-textMuted">Checking authentication...</p>
+        if (loadingAuth || !supabaseClient) {
+            return (
+                <div className="min-h-screen bg-app-bg flex items-center justify-center">
+                    <div className="text-center space-y-3">
+                        <IconCloudSync />
+                        <p className="text-sm text-app-textMuted">Checking authentication...</p>
+                    </div>
                 </div>
-            </div>
-        );
-    }
+            );
+        }
 
-    if (!session) {
-        return <AuthPage supabaseClient={supabaseClient} onResetConfig={handleResetConfig} />;
+        if (!session) {
+            return <AuthPage supabaseClient={supabaseClient} onResetConfig={handleResetConfig} onLocalMode={handleEnterLocalMode} />;
+        }
     }
 
     if (loadingResume || !resumeChecked) {
@@ -179,26 +233,46 @@ const App = () => {
         );
     }
 
+    const errorBanner = resumeError ? (
+        <div className="fixed top-0 inset-x-0 z-50 bg-red-950 border-b border-red-900 text-red-200 text-xs px-4 py-2 flex items-center justify-between gap-4">
+            <span className="truncate">{resumeError}</span>
+            <button onClick={() => setResumeError("")} className="underline shrink-0 hover:text-white">
+                Dismiss
+            </button>
+        </div>
+    ) : null;
+
+    const signOutLabel = localMode ? "Exit Local Mode" : "Sign Out";
+
     if (!resumeState) {
         return (
-            <ResumeUploadPage
-                key={`${session.user.id}:${resumeReadyVersion}`}
-                user={session.user}
-                onResumeReady={persistResumeState}
-                onSignOut={() => supabaseClient.auth.signOut()}
-            />
+            <>
+                {errorBanner}
+                <ResumeUploadPage
+                    key={`${activeUserId}:${resumeReadyVersion}`}
+                    user={activeUser}
+                    onResumeReady={persistResumeState}
+                    onSignOut={handleSignOut}
+                    signOutLabel={signOutLabel}
+                />
+            </>
         );
     }
 
     return (
-        <Dashboard
-            key={session.user.id}
-            user={session.user}
-            resumeState={resumeState}
-            onResumeStateChange={persistResumeState}
-            onReplaceResume={clearCurrentResume}
-            onSignOut={() => supabaseClient.auth.signOut()}
-        />
+        <>
+            {errorBanner}
+            <Dashboard
+                key={activeUserId}
+                user={activeUser}
+                resumeState={resumeState}
+                onResumeStateChange={persistResumeState}
+                onReplaceResume={clearCurrentResume}
+                onSignOut={handleSignOut}
+                signOutLabel={signOutLabel}
+                syncTargetLabel={localMode ? "Saved in this browser" : "Saved to Supabase"}
+            />
+        </>
     );
 };
 
