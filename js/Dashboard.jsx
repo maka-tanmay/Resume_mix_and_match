@@ -192,6 +192,39 @@ const OriginalResumePreview = ({ resumeState, fallbackResume }) => {
     return <p className="resume-preview-sans text-sm text-gray-600">{preview.message || "Original preview is not available."}</p>;
 };
 
+// Personal info edited once here, rendered by whichever template is selected.
+const ContactEditor = ({ personalInfo, onChange }) => {
+    const field = (key, placeholder, className = "") => (
+        <input
+            key={key}
+            className={`bg-[#0a0a0a] border border-app-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-app-textMuted ${className}`}
+            placeholder={placeholder}
+            value={personalInfo[key] || ""}
+            onChange={(event) => onChange({ ...personalInfo, [key]: event.target.value })}
+        />
+    );
+
+    return (
+        <section>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-app-textMuted mb-2">Contact</h2>
+            <div className="grid grid-cols-2 gap-2">
+                {field("name", "Full Name", "col-span-2")}
+                {field("phone", "Phone")}
+                {field("email", "Email")}
+                {field("linkedin", "LinkedIn")}
+                {field("github", "GitHub")}
+                {field("portfolio", "Portfolio / Website", "col-span-2")}
+            </div>
+        </section>
+    );
+};
+
+const ATS_BADGE_STYLES = {
+    A: "bg-emerald-950 text-emerald-300 border-emerald-900",
+    B: "bg-yellow-950 text-yellow-300 border-yellow-900",
+    C: "bg-orange-950 text-orange-300 border-orange-900",
+};
+
 const downloadTextFile = (filename, content, type) => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
@@ -358,6 +391,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const [library, setLibrary] = useState(resumeState?.library || createEmptyLibrary());
     const [sectionOrder, setSectionOrder] = useState(normalizeSectionOrder(resumeState?.sectionOrder));
     const [expandedItems, setExpandedItems] = useState({});
+    const [selectedTemplateId, setSelectedTemplateId] = useState(resumeState?.selectedTemplateId || DEFAULT_TEMPLATE_ID);
     const [syncStatus, setSyncStatus] = useState("synced");
     const [previewMode, setPreviewMode] = useState(resumeState?.originalPreview ? "original" : "edited");
     const [latexDraft, setLatexDraft] = useState("");
@@ -379,6 +413,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const currentLatex = generateStructuredLatex(structuredResume);
     const hasIncludedContent = RESUME_SECTION_KEYS.some((key) => (structuredResume[key] || []).length);
     const estimatedPages = estimateResumePages(structuredResume);
+    const selectedTemplate = getResumeTemplate(selectedTemplateId);
 
     useEffect(() => {
         if (initialLoad.current) {
@@ -390,7 +425,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         const saveTimeout = setTimeout(async () => {
             try {
                 const { jobs: _legacyJobs, ...latest } = resumeStateRef.current || {};
-                await onResumeStateChange(buildResumeStateProjections({ ...latest, personalInfo, library, sectionOrder }));
+                await onResumeStateChange(buildResumeStateProjections({ ...latest, personalInfo, library, sectionOrder, selectedTemplateId }));
                 setSyncStatus("synced");
             } catch (error) {
                 console.error("Error saving data:", error);
@@ -399,7 +434,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         }, 1000);
 
         return () => clearTimeout(saveTimeout);
-    }, [personalInfo, library, sectionOrder]);
+    }, [personalInfo, library, sectionOrder, selectedTemplateId]);
 
     const toggleExpanded = (id) => setExpandedItems((expanded) => ({ ...expanded, [id]: !expanded[id] }));
 
@@ -534,11 +569,11 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     };
 
     const handleDownloadHtml = () => {
-        downloadTextFile(`${exportBaseName()}.html`, generateStandaloneHtml(structuredResume), "text/html;charset=utf-8");
+        downloadTextFile(`${exportBaseName()}.html`, generateStandaloneHtml(structuredResume, selectedTemplate), "text/html;charset=utf-8");
     };
 
     const handleDownloadDoc = () => {
-        downloadTextFile(`${exportBaseName()}.doc`, generateDocHtml(structuredResume), "application/msword;charset=utf-8");
+        downloadTextFile(`${exportBaseName()}.doc`, generateDocHtml(structuredResume, selectedTemplate), "application/msword;charset=utf-8");
     };
 
     const handleDownloadPdf = () => {
@@ -603,6 +638,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                 {importStatus.error && <p className="px-6 pt-2 text-xs text-red-400">{importStatus.error}</p>}
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    <ContactEditor personalInfo={personalInfo} onChange={setPersonalInfo} />
                     {sectionOrder.map((sectionKey, sectionIndex) => {
                         const meta = SECTION_META[sectionKey];
                         const items = library[sectionKey] || [];
@@ -758,7 +794,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     </button>
                 </div>
 
-                <div className={`flex-1 overflow-y-auto p-12 ${previewMode === "latex" ? "pt-28" : ""} flex justify-center items-start`}>
+                <div className="flex-1 overflow-y-auto p-12 pt-28 flex justify-center items-start">
                     {previewMode === "latex" ? (
                         <div className="w-full max-w-[850px] flex flex-col gap-3">
                             <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -785,15 +821,46 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                             />
                         </div>
                     ) : (
+                        <div className="w-full max-w-[850px] flex flex-col items-center gap-4">
+                        {previewMode !== "original" && (
+                            <div className="flex gap-2 flex-wrap justify-center">
+                                {listResumeTemplates().map((tpl) => (
+                                    <button
+                                        key={tpl.id}
+                                        onClick={() => setSelectedTemplateId(tpl.id)}
+                                        title={tpl.tagline}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${selectedTemplateId === tpl.id ? "bg-white text-black border-white" : "bg-app-card text-app-textMuted border-app-border hover:text-white"}`}
+                                    >
+                                        {tpl.name}
+                                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-semibold ${ATS_BADGE_STYLES[tpl.atsRating] || ATS_BADGE_STYLES.B}`}>
+                                            ATS {tpl.atsRating}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                         <div className="bg-white text-black w-full max-w-[850px] min-h-[1100px] shadow-2xl p-12 resume-preview relative">
                             {previewMode === "original" && resumeState?.originalPreview ? (
                                 <OriginalResumePreview resumeState={resumeState} fallbackResume={structuredResume} />
-                            ) : (
+                            ) : selectedTemplateId === "jakes" || !selectedTemplate ? (
                                 <>
                                     <StructuredResumePreview
                                         resume={structuredResume}
                                         personalInfo={personalInfo}
                                         onPersonalInfoChange={setPersonalInfo}
+                                    />
+                                    {!hasIncludedContent && (
+                                        <p className="text-gray-500 italic text-center py-10">
+                                            Check items in the library on the left to build your resume.
+                                        </p>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <style>{selectedTemplate.previewCss}</style>
+                                    <div
+                                        className={`tpl-${selectedTemplate.id}`}
+                                        dangerouslySetInnerHTML={{ __html: selectedTemplate.renderHtml(structuredResume) }}
                                     />
                                     {!hasIncludedContent && (
                                         <p className="text-gray-500 italic text-center py-10">
@@ -815,6 +882,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                                     <pre>{resumeState.rawText}</pre>
                                 </details>
                             )}
+                        </div>
                         </div>
                     )}
                 </div>

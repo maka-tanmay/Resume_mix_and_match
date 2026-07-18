@@ -21,6 +21,7 @@ The app runs entirely in the browser with no build tools required and can be dep
 
 ## Features
 
+- **Template gallery** – five templates (Jake's, Classic serif, Modern sans, ATS Strict, Two Column) with instant switching: the same library re-renders in any theme. Each template shows an honest ATS-safety grade, and HTML/DOC/print exports follow the selected template. See `PRD.md` for the template contract.
 - **Section library** – every parsed or manual entry is a card with an include checkbox, ▲▼ reorder buttons, drag-and-drop, inline field editing, and a source tag showing which resume it came from.
 - **Import & merge** – the *Import Resume* button parses another PDF/DOCX/LaTeX file and appends its entries to the library (nothing is replaced).
 - **Variants** – entry-like items (experience, projects, research, leadership) hold multiple wording variants; the selected variant supplies the bullets.

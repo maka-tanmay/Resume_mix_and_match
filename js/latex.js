@@ -310,9 +310,32 @@ const generateStructuredHtml = (resume) => `
     ${resolveSectionOrder(resume).map((key) => HTML_SECTION_RENDERERS[key](resume)).filter(Boolean).join("\n    ")}
 </main>`;
 
-// Standalone export styled to match Jake's template output: Computer Modern,
-// small-caps name and section titles, ruled sections.
-const generateStandaloneHtml = (resume) => `<!DOCTYPE html>
+// Standalone export. With a template (see js/templates/registry.js) the document
+// uses that template's HTML and scoped CSS; without one it falls back to the
+// built-in Jake's styling so existing callers keep working.
+const generateStandaloneHtml = (resume, template) => {
+    if (template) {
+        return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(resume.basics?.name || "Resume")}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/computer-modern@0.1.3/cmu-serif.css">
+  <style>
+    body { margin: 40px auto; max-width: 7.6in; background: #fff; }
+    @media print { body { margin: 0.5in auto; } }
+${template.previewCss}
+  </style>
+</head>
+<body>
+<div class="tpl-${template.id}">
+${template.renderHtml(resume)}
+</div>
+</body>
+</html>`;
+    }
+
+    return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -336,5 +359,6 @@ const generateStandaloneHtml = (resume) => `<!DOCTYPE html>
 ${generateStructuredHtml(resume)}
 </body>
 </html>`;
+};
 
-const generateDocHtml = (resume) => generateStandaloneHtml(resume);
+const generateDocHtml = (resume, template) => generateStandaloneHtml(resume, template);

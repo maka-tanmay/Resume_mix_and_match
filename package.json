@@ -8,7 +8,7 @@
   "scripts": {
     "start": "npx --yes serve -l 3000 .",
     "dev": "npx --yes serve -l 3000 .",
-    "test": "node tests/parser.test.js && node tests/latex.test.js && node tests/storage.test.js"
+    "test": "node tests/parser.test.js && node tests/latex.test.js && node tests/storage.test.js && node tests/templates.test.js"
   },
   "repository": {
     "type": "git",
