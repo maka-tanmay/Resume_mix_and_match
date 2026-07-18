@@ -426,6 +426,16 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const [parseStats, setParseStats] = useState(resumeState?.parseStats || null);
     const [aiFixing, setAiFixing] = useState(false);
     const [aiError, setAiError] = useState("");
+    const [pasteOpen, setPasteOpen] = useState(false);
+    const [pasteText, setPasteText] = useState("");
+    const [tailorOpen, setTailorOpen] = useState(false);
+    const [jobDescription, setJobDescription] = useState("");
+    const [tailoring, setTailoring] = useState(false);
+    const [tailorResult, setTailorResult] = useState(null);
+    const [tailorError, setTailorError] = useState("");
+    // Snapshot of (library, sectionOrder) taken right before tailoring applies,
+    // so "Undo tailoring" can restore the user's manual selection.
+    const preTailorRef = useRef(null);
     const [draggedItem, setDraggedItem] = useState(null);
     const importInput = useRef(null);
     // Raw text of the most recent import, kept so "Fix with AI" can re-parse it.
@@ -559,6 +569,53 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         } catch (error) {
             setImportStatus({ loading: false, error: error.message || "Could not read this resume file." });
         }
+    };
+
+    const handlePasteImport = () => {
+        try {
+            const parsed = parsePastedResumeText(pasteText);
+            const source = "pasted text";
+            const incoming = createLibraryFromStructuredResume(parsed.structuredResume, source);
+            setLibrary((lib) => mergeLibraries(lib, incoming));
+            setPersonalInfo((info) => fillEmptyPersonalInfo(info, parsed.structuredResume.basics || {}));
+            lastImportRef.current = { source, rawText: parsed.rawText };
+            setParseStats(createParseStats(incoming, source));
+            setAiError("");
+            setPasteText("");
+            setPasteOpen(false);
+            setImportStatus({ loading: false, error: "" });
+        } catch (error) {
+            setImportStatus({ loading: false, error: error.message || "Could not parse the pasted text." });
+        }
+    };
+
+    const handleTailor = async () => {
+        setTailoring(true);
+        setTailorError("");
+        try {
+            const result = await tailorResume(supabaseClient, jobDescription, library, sectionOrder);
+            preTailorRef.current = { library, sectionOrder };
+            setLibrary((lib) => applyTailoringToLibrary(lib, result));
+            if (Array.isArray(result.sectionOrder) && result.sectionOrder.length) {
+                setSectionOrder(normalizeSectionOrder(result.sectionOrder));
+            }
+            setTailorResult(result);
+            setTailorOpen(false);
+            setPreviewMode("edited");
+        } catch (error) {
+            setTailorError(error.message || "AI tailoring failed.");
+        } finally {
+            setTailoring(false);
+        }
+    };
+
+    const undoTailoring = () => {
+        if (preTailorRef.current) {
+            setLibrary(preTailorRef.current.library);
+            setSectionOrder(preTailorRef.current.sectionOrder);
+            preTailorRef.current = null;
+        }
+        setTailorResult(null);
     };
 
     const dismissReview = () => setParseStats((stats) => (stats ? { ...stats, reviewedAt: new Date().toISOString() } : stats));
@@ -701,13 +758,22 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                         <h1 className="text-2xl font-bold tracking-tight text-white">Resume Library</h1>
                         <p className="text-sm text-app-textMuted mt-1">Mix and match sections across resumes</p>
                     </div>
-                    <button
-                        onClick={handleImportClick}
-                        disabled={importStatus.loading}
-                        className="shrink-0 text-xs bg-white text-black font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-                    >
-                        {importStatus.loading ? "Importing..." : "＋ Import Resume"}
-                    </button>
+                    <div className="shrink-0 flex gap-2">
+                        <button
+                            onClick={handleImportClick}
+                            disabled={importStatus.loading}
+                            className="text-xs bg-white text-black font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                        >
+                            {importStatus.loading ? "Importing..." : "＋ Import"}
+                        </button>
+                        <button
+                            onClick={() => setPasteOpen(!pasteOpen)}
+                            className="text-xs bg-[#1C1C1E] border border-app-border text-white font-medium px-3 py-2 rounded-lg hover:bg-app-cardHover transition-colors"
+                            title="Paste resume text instead of uploading a file"
+                        >
+                            Paste
+                        </button>
+                    </div>
                     <input
                         ref={importInput}
                         type="file"
@@ -717,6 +783,24 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     />
                 </div>
                 {importStatus.error && <p className="px-6 pt-2 text-xs text-red-400">{importStatus.error}</p>}
+                {pasteOpen && (
+                    <div className="mx-6 mt-4 space-y-2">
+                        <textarea
+                            value={pasteText}
+                            onChange={(event) => setPasteText(event.target.value)}
+                            placeholder="Paste your resume text here — section headings included..."
+                            className="w-full h-32 bg-[#0a0a0a] border border-app-border rounded-xl p-3 text-xs text-white focus:outline-none focus:border-app-textMuted"
+                        />
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setPasteOpen(false)} className="text-xs px-3 py-1.5 rounded-lg text-app-textMuted hover:text-white">
+                                Cancel
+                            </button>
+                            <button onClick={handlePasteImport} className="text-xs bg-white text-black font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200">
+                                Import pasted text
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {parseStats && !parseStats.reviewedAt && (
                     <div className="mx-6 mt-4 p-3 rounded-xl border border-amber-900/70 bg-amber-950/50 text-amber-100 text-xs space-y-2">
@@ -890,6 +974,14 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                             LaTeX
                         </button>
                     </div>
+                    <button
+                        onClick={() => { setTailorOpen(!tailorOpen); setTailorError(""); }}
+                        disabled={!supabaseClient}
+                        title={supabaseClient ? "Pick the best items, variants, and section order for a specific job" : "Sign in to use AI tailoring"}
+                        className="bg-white text-black px-4 py-2 rounded-xl text-sm font-semibold hover:bg-gray-200 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        🎯 Tailor to Job
+                    </button>
                     <button onClick={handleCopyLatex} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg transition-transform active:scale-95">
                         Copy LaTeX
                     </button>
@@ -938,6 +1030,70 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                         </div>
                     ) : (
                         <div className="w-full max-w-[850px] flex flex-col items-center gap-4">
+                        {tailorOpen && (
+                            <div className="w-full bg-app-card border border-app-border rounded-2xl p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="font-semibold text-white text-sm">Tailor to a job description</h3>
+                                    <button onClick={() => setTailorOpen(false)} className="text-app-textMuted hover:text-white text-xs">✕</button>
+                                </div>
+                                <textarea
+                                    value={jobDescription}
+                                    onChange={(event) => setJobDescription(event.target.value)}
+                                    placeholder="Paste the full job description here..."
+                                    className="w-full h-40 bg-[#0a0a0a] border border-app-border rounded-xl p-3 text-xs text-white focus:outline-none focus:border-app-textMuted"
+                                />
+                                {tailorError && <p className="text-xs text-red-400">{tailorError}</p>}
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-[11px] text-app-textMuted">
+                                        Picks the most relevant items and wording variants, reorders sections, and reports your keyword match. Your current selection can be restored with one click.
+                                    </p>
+                                    <button
+                                        onClick={handleTailor}
+                                        disabled={tailoring}
+                                        className="shrink-0 bg-white text-black text-xs font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                                    >
+                                        {tailoring ? "Tailoring..." : "Tailor my resume"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {tailorResult && (
+                            <div className="w-full bg-app-card border border-app-border rounded-2xl p-4 space-y-3 text-xs">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="font-semibold text-white text-sm">
+                                        Match report: {tailorResult.matchReport?.score ?? "–"}/100
+                                    </h3>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={undoTailoring} className="border border-app-border px-2.5 py-1 rounded-lg text-app-textMuted hover:text-white">
+                                            Undo tailoring
+                                        </button>
+                                        <button onClick={() => setTailorResult(null)} className="text-app-textMuted hover:text-white px-1">✕</button>
+                                    </div>
+                                </div>
+                                {tailorResult.matchReport?.summary && <p className="text-app-textMuted">{tailorResult.matchReport.summary}</p>}
+                                {(tailorResult.matchReport?.matchedKeywords || []).length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {tailorResult.matchReport.matchedKeywords.map((keyword) => (
+                                            <span key={`m-${keyword}`} className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-900">{keyword}</span>
+                                        ))}
+                                    </div>
+                                )}
+                                {(tailorResult.matchReport?.missingKeywords || []).length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {tailorResult.matchReport.missingKeywords.map((keyword) => (
+                                            <span key={`x-${keyword}`} className="px-2 py-0.5 rounded-full bg-orange-950 text-orange-300 border border-orange-900" title="Required by the job but not covered by your library">{keyword}</span>
+                                        ))}
+                                    </div>
+                                )}
+                                {(tailorResult.matchReport?.suggestions || []).length > 0 && (
+                                    <ul className="list-disc pl-4 space-y-1 text-app-textMuted">
+                                        {tailorResult.matchReport.suggestions.map((suggestion, index) => (
+                                            <li key={index}>{suggestion}</li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        )}
                         {previewMode !== "original" && (
                             <div className="flex gap-2 flex-wrap justify-center">
                                 {listResumeTemplates().map((tpl) => (

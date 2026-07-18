@@ -535,6 +535,20 @@ const parseResumeLines = (lines) => {
 // dialect this app generates.
 const parseLatexSource = (source) => parseResumeLines(normalizeTextLines(stripLatex(String(source || ""))));
 
+// Parses resume text pasted by the user (no file involved) into the same
+// shape parseUploadedResume returns, so imports can share one code path.
+const parsePastedResumeText = (text) => {
+    const lines = normalizeTextLines(String(text || ""));
+    if (!lines.length) {
+        throw new Error("Paste some resume text first.");
+    }
+    return {
+        ...parseResumeLines(lines),
+        rawLines: lines,
+        originalPreview: { kind: "text", text: String(text) },
+    };
+};
+
 const parseUploadedResume = async (file, format) => {
     if (file.size > 10 * 1024 * 1024) {
         throw new Error("Resume file is too large. Upload a file under 10 MB.");

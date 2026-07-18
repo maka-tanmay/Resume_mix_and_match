@@ -56,7 +56,11 @@ globalThis.storageTestApi = {
   createParseStats,
   convertItemForSection,
   PARSE_REVIEW_THRESHOLD,
-};`, context);
+  applyTailoringToLibrary,
+};
+`, context);
+    vm.runInContext(`${read("../js/tailor.js")}
+globalThis.storageTestApi.buildTailorLibraryPayload = buildTailorLibraryPayload;`, context);
     return context.storageTestApi;
 };
 
@@ -248,6 +252,34 @@ assert.strictEqual(backToExp.company, "");
 assert.strictEqual(api.convertItemForSection(expItem, "experience", "education"), null, "education is not a valid move target");
 const passthrough = api.convertItemForSection(expItem, "experience", "research");
 assert.strictEqual(passthrough.company, "Club", "same-shape moves keep the organization");
+
+// --- AI tailoring: pure apply + payload condenser (PRD P1) ---
+const tailorLib = api.createEmptyLibrary();
+tailorLib.experience = [
+    { id: "t1", title: "Backend Dev", company: "Co", location: "", dates: "2024", included: false, selectedVariantId: "v1", variants: [{ id: "v1", label: "General", bullets: "did x" }, { id: "v2", label: "Backend", bullets: "did y" }] },
+    { id: "t2", title: "Designer", company: "Co2", location: "", dates: "2023", included: true, selectedVariantId: "v1", variants: [{ id: "v1", label: "Only", bullets: "did z" }] },
+];
+tailorLib.skills = [{ id: "t3", category: "Languages", items: ["Go"], included: false }];
+
+const tailored = api.applyTailoringToLibrary(tailorLib, {
+    includedItemIds: ["t1", "t3", "invented-id"],
+    variantChoices: [{ itemId: "t1", variantId: "v2" }, { itemId: "t1", variantId: "does-not-exist" }, { itemId: "t2", variantId: "bogus" }],
+});
+assert.strictEqual(tailored.experience[0].included, true, "tailoring includes selected items");
+assert.strictEqual(tailored.experience[0].selectedVariantId, "v2", "valid variant choices apply");
+assert.strictEqual(tailored.experience[1].included, false, "unselected items are excluded");
+assert.strictEqual(tailored.experience[1].selectedVariantId, "v1", "invalid variant choices are ignored");
+assert.strictEqual(tailored.skills[0].included, true);
+
+const payload = api.buildTailorLibraryPayload(tailorLib);
+assert.strictEqual(payload.length, 3);
+const payloadT1 = payload.find((entry) => entry.id === "t1");
+assert.strictEqual(payloadT1.section, "experience");
+assert.strictEqual(payloadT1.title, "Backend Dev");
+assert.strictEqual(payloadT1.variants.length, 2);
+const payloadT3 = payload.find((entry) => entry.id === "t3");
+assert.strictEqual(payloadT3.title, "Languages");
+assert.strictEqual(json(payloadT3.skills), json(["Go"]));
 
 // --- helpers ---
 assert.strictEqual(json(api.normalizeSectionOrder(["skills", "bogus"])), json(["skills", "education", "experience", "projects", "research", "leadership"]));

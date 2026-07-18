@@ -31,6 +31,7 @@ globalThis.parserTestApi = {
   emptyStructuredResume,
   stripLatex,
   parseLatexSource,
+  parsePastedResumeText,
   generateStructuredLatex,
   getSectionKey
 };`, context);
@@ -46,6 +47,7 @@ const {
     emptyStructuredResume,
     stripLatex,
     parseLatexSource,
+    parsePastedResumeText,
     generateStructuredLatex,
     getSectionKey,
 } = context.parserTestApi;
@@ -281,5 +283,13 @@ const realLeadership = parseExperienceLike(realSections.leadership, "leadership"
 assert.strictEqual(realLeadership.length, 1);
 assert.strictEqual(realLeadership[0].title, "Community Instructor");
 assert.strictEqual(realLeadership[0].dates, "2023 - 2024");
+
+// --- pasted-text import shares the upload pipeline ---
+const pasted = parsePastedResumeText(sample);
+assert.strictEqual(pasted.structuredResume.basics.name, "Jane Candidate");
+assert.strictEqual(pasted.structuredResume.experience.length, 2);
+assert.strictEqual(pasted.originalPreview.kind, "text");
+assert(pasted.rawText.includes("SAR compliance"));
+assert.throws(() => parsePastedResumeText("   "), /Paste some resume text/);
 
 console.log("parser tests passed");

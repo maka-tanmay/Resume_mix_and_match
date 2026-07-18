@@ -324,6 +324,25 @@ const libraryToStructuredResume = (personalInfo = {}, library = createEmptyLibra
     });
 };
 
+// Applies an AI tailoring result (PRD P1) to the library as a pure update:
+// included flags follow includedItemIds, variant choices are honored when the
+// variant exists, and unknown IDs are ignored. Callers keep a snapshot of the
+// previous library/sectionOrder for undo.
+const applyTailoringToLibrary = (library, tailorResult = {}) => {
+    const includedSet = new Set(tailorResult.includedItemIds || []);
+    const variantChoices = tailorResult.variantChoices || [];
+
+    return Object.fromEntries(RESUME_SECTION_KEYS.map((key) => [key, (library?.[key] || []).map((item) => {
+        const next = { ...item, included: includedSet.has(item.id) };
+        const chosen = variantChoices.find((choice) =>
+            choice.itemId === item.id && (item.variants || []).some((variant) => variant.id === choice.variantId));
+        if (chosen) {
+            next.selectedVariantId = chosen.variantId;
+        }
+        return next;
+    })]));
+};
+
 // Recomputes the derived fields (structuredResume + exports) from the library.
 const buildResumeStateProjections = (state) => {
     const structuredResume = libraryToStructuredResume(state.personalInfo, state.library, state.sectionOrder);

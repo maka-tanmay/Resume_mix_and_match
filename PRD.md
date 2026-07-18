@@ -120,10 +120,17 @@ templates suite; browser-verified.
 
 ### P1 — The wedge
 
-- [ ] Paste-a-JD tailoring: JD text in → selected items/variants + section order out,
-      with a keyword match report (Edge Function; library IDs in, selection out).
+- [x] Paste-a-JD tailoring code: `supabase/functions/tailor-resume` (structured
+      outputs: includedItemIds / variantChoices / sectionOrder / matchReport with
+      honest score, matched/missing keywords, suggestions; invented IDs filtered
+      server-side) + `js/tailor.js` + dashboard panel with one-click apply and
+      Undo tailoring (pre-tailor snapshot). Signed-in users only.
+- [x] Paste-text import (first-run page + sidebar Paste button; same parser and
+      review flow as file imports).
+- [ ] Owner action: `supabase functions deploy tailor-resume` (same
+      ANTHROPIC_API_KEY secret as parse-resume).
 - [ ] Cover letter generated from library items + JD.
-- [ ] Paste-text import and LinkedIn-PDF import presets.
+- [ ] LinkedIn-PDF import preset.
 - [ ] Typst or server-side PDF for true typography (replaces print-to-PDF).
 
 ### P2 — The business

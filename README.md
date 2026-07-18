@@ -25,6 +25,8 @@ The app runs entirely in the browser with no build tools required and can be dep
 - **Section library** – every parsed or manual entry is a card with an include checkbox, ▲▼ reorder buttons, drag-and-drop, inline field editing, and a source tag showing which resume it came from.
 - **Import & merge** – the *Import Resume* button parses another PDF/DOCX/LaTeX file and appends its entries to the library (nothing is replaced).
 - **Parse review** – after every import a banner reports how many items landed and flags low-confidence ones with an amber dot; expand a flagged card to fix fields (editing clears the flag), move a misfiled entry between sections, or click **Fix parsing with AI** (signed-in users, when the backend function is deployed).
+- **Paste-text import** – no file needed: paste resume text on the first-run page or via the sidebar *Paste* button; it goes through the same parser and review flow.
+- **Tailor to Job** – paste a job description and the AI picks the most relevant items, chooses the best wording variant per entry, reorders sections, and returns an honest match report (score, matched/missing keywords, suggestions). One-click **Undo tailoring** restores your manual selection. Signed-in users; requires the `tailor-resume` Edge Function.
 - **Variants** – entry-like items (experience, projects, research, leadership) hold multiple wording variants; the selected variant supplies the bullets.
 - **Section reordering** – move whole sections (e.g. put Projects before Experience); the preview, LaTeX, and HTML exports all honor the order.
 - **Editable LaTeX loop** – the LaTeX tab shows the Jake's-template source for your current selection. Edit it and *Apply to Resume*: the source is parsed back into structured entries which replace the currently included items (unchecked items are kept).
@@ -146,10 +148,11 @@ The **Fix parsing with AI** button calls a Supabase Edge Function that holds the
 ```bash
 # from the repo root, with the Supabase CLI linked to the project
 supabase functions deploy parse-resume
+supabase functions deploy tailor-resume
 supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-The function uses `claude-opus-4-8` with structured outputs so the reply always matches the app's resume JSON shape. Until it is deployed, the button reports that AI parsing isn't set up; everything else works without it.
+Both functions use `claude-opus-4-8` with structured outputs so replies always match the expected JSON shapes (`parse-resume` returns the resume schema; `tailor-resume` returns the selection + match report). Until deployed, the buttons report that the AI backend isn't set up; everything else works without them.
 
 ### Run the tests
 

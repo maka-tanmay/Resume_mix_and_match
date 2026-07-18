@@ -21,6 +21,21 @@ const ResumeUploadPage = ({ user, onResumeReady, onSignOut, signOutLabel = "Sign
     const fileInput = React.useRef(null);
     const [error, setError] = React.useState("");
     const [loading, setLoading] = React.useState(false);
+    const [pastedText, setPastedText] = React.useState("");
+
+    const handlePasteStart = async () => {
+        setError("");
+        setLoading(true);
+        try {
+            const parsed = parsePastedResumeText(pastedText);
+            const pseudoFile = { name: "pasted-resume.txt", size: pastedText.length, type: "text/plain" };
+            await onResumeReady(createResumeStateFromUpload(pseudoFile, "text", parsed));
+        } catch (pasteError) {
+            setError(pasteError.message || "Could not parse the pasted text.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleUploadClick = () => {
         setError("");
@@ -99,6 +114,27 @@ const ResumeUploadPage = ({ user, onResumeReady, onSignOut, signOutLabel = "Sign
                 </div>
 
                 {error && <p className="text-sm text-red-400 font-medium">{error}</p>}
+
+                <div className="bg-app-card border border-app-border rounded-2xl p-6 space-y-4">
+                    <div>
+                        <h2 className="text-xl font-bold">No file handy? Paste the text</h2>
+                        <p className="text-sm text-app-textMuted mt-2">Copy your resume from anywhere and paste it below — keep the section headings.</p>
+                    </div>
+                    <textarea
+                        value={pastedText}
+                        onChange={(event) => setPastedText(event.target.value)}
+                        placeholder={"JANE DOE\njane@example.com | (555) 123-4567\nEXPERIENCE\nSoftware Engineer  Jan 2022 - Present\n..."}
+                        className="w-full h-36 bg-[#0a0a0a] border border-app-border rounded-xl p-3 text-sm focus:outline-none focus:border-app-textMuted"
+                    />
+                    <button
+                        type="button"
+                        onClick={handlePasteStart}
+                        disabled={loading || !pastedText.trim()}
+                        className="w-full bg-[#0a0a0a] border border-app-border text-white font-semibold py-3 rounded-xl hover:bg-app-cardHover transition-colors disabled:opacity-50"
+                    >
+                        Import pasted text
+                    </button>
+                </div>
 
                 <div className="border border-app-border bg-[#0a0a0a] rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
