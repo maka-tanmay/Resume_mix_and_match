@@ -304,9 +304,12 @@ const VariantsEditor = ({ item, onPatch }) => {
     );
 };
 
-const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExpanded, onPatch, onRemove, onMove, onDragStart, onDragEnd, onDrop, dragging }) => {
+const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExpanded, onPatch, onRemove, onMove, onMoveToSection, onDragStart, onDragEnd, onDrop, dragging }) => {
     const meta = SECTION_META[sectionKey];
     const summary = meta.summary(item) || "Untitled";
+    const flagged = isFlaggedItem(item);
+    // A field edit counts as a human review: clear the flag.
+    const patchField = (patch) => onPatch(typeof item.confidence === "number" ? { ...patch, confidence: 1 } : patch);
 
     return (
         <div
@@ -327,7 +330,15 @@ const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExp
                     title="Include in resume"
                 />
                 <div className="flex-1 min-w-0 cursor-pointer select-none" onClick={onToggleExpanded}>
-                    <p className={`text-sm font-medium truncate ${item.included ? "text-white" : "text-app-textMuted"}`}>{summary}</p>
+                    <p className={`text-sm font-medium truncate ${item.included ? "text-white" : "text-app-textMuted"}`}>
+                        {flagged && (
+                            <span
+                                className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-2 align-middle"
+                                title="The importer wasn't confident about this item — expand it and check the fields."
+                            />
+                        )}
+                        {summary}
+                    </p>
                     <p className="text-xs text-app-textMuted truncate">{meta.subSummary(item)}</p>
                     {item.source && <p className="text-[10px] uppercase tracking-wider text-app-textMuted/60 mt-0.5 truncate">{item.source}</p>}
                 </div>
@@ -361,7 +372,7 @@ const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExp
                                 key={`${item.id}-${field}`}
                                 defaultValue={(item[field] || []).join(", ")}
                                 placeholder={placeholder}
-                                onBlur={(event) => onPatch({ [field]: event.target.value.split(",").map((part) => part.trim()).filter(Boolean) })}
+                                onBlur={(event) => patchField({ [field]: event.target.value.split(",").map((part) => part.trim()).filter(Boolean) })}
                                 className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-app-textMuted"
                             />
                         ) : (
@@ -369,13 +380,28 @@ const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExp
                                 key={`${item.id}-${field}`}
                                 value={item[field] || ""}
                                 placeholder={placeholder}
-                                onChange={(event) => onPatch({ [field]: event.target.value })}
+                                onChange={(event) => patchField({ [field]: event.target.value })}
                                 className="w-full bg-[#0a0a0a] border border-app-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-app-textMuted"
                             />
                         )
                     ))}
                     {meta.hasVariants && <VariantsEditor item={item} onPatch={onPatch} />}
-                    <div className="flex justify-end">
+                    <div className="flex items-center justify-between">
+                        {onMoveToSection ? (
+                            <label className="text-xs text-app-textMuted flex items-center gap-1.5">
+                                Section:
+                                <select
+                                    value={sectionKey}
+                                    onChange={(event) => onMoveToSection(event.target.value)}
+                                    className="bg-[#0a0a0a] border border-app-border rounded px-1.5 py-1 text-xs focus:outline-none"
+                                    title="Move this item to a different section (fixes misfiled imports)"
+                                >
+                                    {["experience", "projects", "research", "leadership"].map((key) => (
+                                        <option key={key} value={key}>{SECTION_META[key].label}</option>
+                                    ))}
+                                </select>
+                            </label>
+                        ) : <span />}
                         <button type="button" onClick={onRemove} className="text-xs text-red-400/80 hover:text-red-300">
                             Delete from library
                         </button>
@@ -386,7 +412,7 @@ const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExp
     );
 };
 
-const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, onSignOut, signOutLabel = "Sign Out", syncTargetLabel = "Saved to Supabase" }) => {
+const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, onSignOut, supabaseClient = null, signOutLabel = "Sign Out", syncTargetLabel = "Saved to Supabase" }) => {
     const [personalInfo, setPersonalInfo] = useState(resumeState?.personalInfo || { ...defaultPersonalInfo });
     const [library, setLibrary] = useState(resumeState?.library || createEmptyLibrary());
     const [sectionOrder, setSectionOrder] = useState(normalizeSectionOrder(resumeState?.sectionOrder));
@@ -397,8 +423,13 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const [latexDraft, setLatexDraft] = useState("");
     const [latexError, setLatexError] = useState("");
     const [importStatus, setImportStatus] = useState({ loading: false, error: "" });
+    const [parseStats, setParseStats] = useState(resumeState?.parseStats || null);
+    const [aiFixing, setAiFixing] = useState(false);
+    const [aiError, setAiError] = useState("");
     const [draggedItem, setDraggedItem] = useState(null);
     const importInput = useRef(null);
+    // Raw text of the most recent import, kept so "Fix with AI" can re-parse it.
+    const lastImportRef = useRef(null);
     const initialLoad = useRef(true);
     // The debounced autosave below fires up to 1s after a render; read the
     // resume state through a ref so it merges into the *latest* saved state
@@ -425,7 +456,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         const saveTimeout = setTimeout(async () => {
             try {
                 const { jobs: _legacyJobs, ...latest } = resumeStateRef.current || {};
-                await onResumeStateChange(buildResumeStateProjections({ ...latest, personalInfo, library, sectionOrder, selectedTemplateId }));
+                await onResumeStateChange(buildResumeStateProjections({ ...latest, personalInfo, library, sectionOrder, selectedTemplateId, parseStats }));
                 setSyncStatus("synced");
             } catch (error) {
                 console.error("Error saving data:", error);
@@ -434,7 +465,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         }, 1000);
 
         return () => clearTimeout(saveTimeout);
-    }, [personalInfo, library, sectionOrder, selectedTemplateId]);
+    }, [personalInfo, library, sectionOrder, selectedTemplateId, parseStats]);
 
     const toggleExpanded = (id) => setExpandedItems((expanded) => ({ ...expanded, [id]: !expanded[id] }));
 
@@ -479,6 +510,19 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             return next;
         });
 
+    const moveItemToSection = (fromSection, id, toSection) => {
+        setLibrary((lib) => {
+            const item = lib[fromSection].find((candidate) => candidate.id === id);
+            const converted = item ? convertItemForSection(item, fromSection, toSection) : null;
+            if (!converted) return lib;
+            return {
+                ...lib,
+                [fromSection]: lib[fromSection].filter((candidate) => candidate.id !== id),
+                [toSection]: [converted, ...lib[toSection]],
+            };
+        });
+    };
+
     const handleItemDrop = (sectionKey, targetId) => {
         if (!draggedItem || draggedItem.sectionKey !== sectionKey || draggedItem.id === targetId) return;
         setLibrary((lib) => {
@@ -505,11 +549,46 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         setImportStatus({ loading: true, error: "" });
         try {
             const parsed = await parseUploadedResume(file, detectResumeFormat(file));
-            setLibrary((lib) => mergeLibraries(lib, createLibraryFromStructuredResume(parsed.structuredResume, file.name)));
+            const incoming = createLibraryFromStructuredResume(parsed.structuredResume, file.name);
+            setLibrary((lib) => mergeLibraries(lib, incoming));
             setPersonalInfo((info) => fillEmptyPersonalInfo(info, parsed.structuredResume.basics || {}));
+            lastImportRef.current = { source: file.name, rawText: parsed.rawText };
+            setParseStats(createParseStats(incoming, file.name));
+            setAiError("");
             setImportStatus({ loading: false, error: "" });
         } catch (error) {
             setImportStatus({ loading: false, error: error.message || "Could not read this resume file." });
+        }
+    };
+
+    const dismissReview = () => setParseStats((stats) => (stats ? { ...stats, reviewedAt: new Date().toISOString() } : stats));
+
+    const handleAiFix = async () => {
+        if (!parseStats) return;
+        const rawText = lastImportRef.current?.source === parseStats.source
+            ? lastImportRef.current.rawText
+            : (resumeState?.sourceFile?.name === parseStats.source ? resumeState?.rawText : null);
+        if (!rawText) {
+            setAiError("The original text of this import is no longer available — re-import the file to use AI parsing.");
+            return;
+        }
+
+        setAiFixing(true);
+        setAiError("");
+        try {
+            const structuredResume = await aiParseResume(supabaseClient, rawText);
+            const incoming = createLibraryFromStructuredResume(structuredResume, parseStats.source);
+            // The AI result replaces everything from the same import; items from
+            // other sources (samples, other resumes, manual entries) are kept.
+            setLibrary((lib) => Object.fromEntries(
+                RESUME_SECTION_KEYS.map((key) => [key, [...incoming[key], ...lib[key].filter((item) => item.source !== parseStats.source)]])
+            ));
+            setPersonalInfo((info) => fillEmptyPersonalInfo(info, structuredResume.basics || {}));
+            setParseStats({ ...createParseStats(incoming, parseStats.source), aiFixed: true });
+        } catch (error) {
+            setAiError(error.message || "AI parsing failed.");
+        } finally {
+            setAiFixing(false);
         }
     };
 
@@ -603,6 +682,8 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         setLibrary(sample.library);
         setSectionOrder(sample.sectionOrder);
         setExpandedItems({});
+        setParseStats(null);
+        setAiError("");
         setPreviewMode("edited");
         onResumeStateChange(sample)
             .then(() => setSyncStatus("synced"))
@@ -636,6 +717,38 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     />
                 </div>
                 {importStatus.error && <p className="px-6 pt-2 text-xs text-red-400">{importStatus.error}</p>}
+
+                {parseStats && !parseStats.reviewedAt && (
+                    <div className="mx-6 mt-4 p-3 rounded-xl border border-amber-900/70 bg-amber-950/50 text-amber-100 text-xs space-y-2">
+                        <p>
+                            {parseStats.aiFixed ? "AI re-parsed " : "Imported "}
+                            <strong>{parseStats.itemCount}</strong> item{parseStats.itemCount === 1 ? "" : "s"} from <strong>{parseStats.source}</strong>.{" "}
+                            {parseStats.flaggedCount > 0
+                                ? <>Items marked with an amber dot deserve a quick check ({parseStats.flaggedCount}) — compare with the Original tab.</>
+                                : "Everything parsed confidently."}
+                        </p>
+                        {aiError && <p className="text-red-300">{aiError}</p>}
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                                onClick={dismissReview}
+                                className="bg-amber-100 text-amber-950 font-semibold px-2.5 py-1 rounded-lg hover:bg-white transition-colors"
+                            >
+                                Looks good ✓
+                            </button>
+                            {!parseStats.aiFixed && (supabaseClient ? (
+                                <button
+                                    onClick={handleAiFix}
+                                    disabled={aiFixing}
+                                    className="border border-amber-700 px-2.5 py-1 rounded-lg hover:bg-amber-900/50 transition-colors disabled:opacity-50"
+                                >
+                                    {aiFixing ? "Fixing with AI..." : "✨ Fix parsing with AI"}
+                                </button>
+                            ) : (
+                                <span className="opacity-70">Sign in to use AI parsing.</span>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
                     <ContactEditor personalInfo={personalInfo} onChange={setPersonalInfo} />
@@ -692,6 +805,9 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                                             onPatch={(patch) => patchItem(sectionKey, item.id, patch)}
                                             onRemove={() => removeItem(sectionKey, item.id)}
                                             onMove={(delta) => moveItem(sectionKey, item.id, delta)}
+                                            onMoveToSection={["experience", "projects", "research", "leadership"].includes(sectionKey)
+                                                ? (toSection) => moveItemToSection(sectionKey, item.id, toSection)
+                                                : undefined}
                                             onDragStart={() => setDraggedItem({ sectionKey, id: item.id })}
                                             onDragEnd={() => setDraggedItem(null)}
                                             onDrop={(event) => {

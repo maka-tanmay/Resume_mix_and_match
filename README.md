@@ -24,6 +24,7 @@ The app runs entirely in the browser with no build tools required and can be dep
 - **Template gallery** – five templates (Jake's, Classic serif, Modern sans, ATS Strict, Two Column) with instant switching: the same library re-renders in any theme. Each template shows an honest ATS-safety grade, and HTML/DOC/print exports follow the selected template. See `PRD.md` for the template contract.
 - **Section library** – every parsed or manual entry is a card with an include checkbox, ▲▼ reorder buttons, drag-and-drop, inline field editing, and a source tag showing which resume it came from.
 - **Import & merge** – the *Import Resume* button parses another PDF/DOCX/LaTeX file and appends its entries to the library (nothing is replaced).
+- **Parse review** – after every import a banner reports how many items landed and flags low-confidence ones with an amber dot; expand a flagged card to fix fields (editing clears the flag), move a misfiled entry between sections, or click **Fix parsing with AI** (signed-in users, when the backend function is deployed).
 - **Variants** – entry-like items (experience, projects, research, leadership) hold multiple wording variants; the selected variant supplies the bullets.
 - **Section reordering** – move whole sections (e.g. put Projects before Experience); the preview, LaTeX, and HTML exports all honor the order.
 - **Editable LaTeX loop** – the LaTeX tab shows the Jake's-template source for your current selection. Edit it and *Apply to Resume*: the source is parsed back into structured entries which replace the currently included items (unchecked items are kept).
@@ -137,6 +138,18 @@ npm start
 python -m http.server 8000
 # Then open http://localhost:8000 in your browser
 ```
+
+### AI parse fallback (optional backend, project owner only)
+
+The **Fix parsing with AI** button calls a Supabase Edge Function that holds the Anthropic API key server-side (the key never reaches browsers; the function requires a signed-in user). To enable it:
+
+```bash
+# from the repo root, with the Supabase CLI linked to the project
+supabase functions deploy parse-resume
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The function uses `claude-opus-4-8` with structured outputs so the reply always matches the app's resume JSON shape. Until it is deployed, the button reports that AI parsing isn't set up; everything else works without it.
 
 ### Run the tests
 

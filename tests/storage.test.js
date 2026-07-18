@@ -52,6 +52,10 @@ globalThis.storageTestApi = {
   normalizeSectionOrder,
   fillEmptyPersonalInfo,
   buildResumeStateProjections,
+  isFlaggedItem,
+  createParseStats,
+  convertItemForSection,
+  PARSE_REVIEW_THRESHOLD,
 };`, context);
     return context.storageTestApi;
 };
@@ -209,6 +213,41 @@ stripLibrary.experience = [{
 }];
 const strippedResume = api.libraryToStructuredResume({ name: "X" }, stripLibrary, undefined);
 assert.strictEqual(json(strippedResume.experience[0].bullets), json(["Did a thing", "Did another thing", "Ended with a period"]));
+
+// --- parse review: confidence flags, stats, section moves (PRD P0.5) ---
+const confidentSR = {
+    basics: {},
+    education: [],
+    skills: [],
+    experience: [
+        { title: "Solid", company: "Co", location: "", dates: "2024", bullets: ["Did"], confidence: 0.8 },
+        { title: "Shaky", company: "", location: "", dates: "", bullets: [], confidence: 0.5 },
+    ],
+    projects: [], research: [], leadership: [],
+};
+const flaggedLibrary = api.createLibraryFromStructuredResume(confidentSR, "review.pdf");
+assert.strictEqual(flaggedLibrary.experience[0].confidence, 0.8, "confidence must ride into library items");
+assert.strictEqual(api.isFlaggedItem(flaggedLibrary.experience[0]), false);
+assert.strictEqual(api.isFlaggedItem(flaggedLibrary.experience[1]), true, "low-confidence items must be flagged");
+assert.strictEqual(api.isFlaggedItem({ title: "manual" }), false, "items without confidence are never flagged");
+
+const stats = api.createParseStats(flaggedLibrary, "review.pdf");
+assert.strictEqual(stats.itemCount, 2);
+assert.strictEqual(stats.flaggedCount, 1);
+assert.strictEqual(stats.source, "review.pdf");
+assert.strictEqual(stats.reviewedAt, null);
+
+const expItem = { id: "x1", title: "Built A Thing", company: "Club", location: "NY", dates: "2024", included: true, source: "s", confidence: 0.5, selectedVariantId: "v1", variants: [{ id: "v1", label: "P", bullets: "b" }] };
+const asProject = api.convertItemForSection(expItem, "experience", "projects");
+assert.strictEqual(asProject.name, "Built A Thing", "title maps to project name");
+assert.strictEqual(json(asProject.technologies), json([]));
+assert.strictEqual(asProject.variants[0].bullets, "b", "variants survive the move");
+const backToExp = api.convertItemForSection(asProject, "projects", "leadership");
+assert.strictEqual(backToExp.title, "Built A Thing", "project name maps back to title");
+assert.strictEqual(backToExp.company, "");
+assert.strictEqual(api.convertItemForSection(expItem, "experience", "education"), null, "education is not a valid move target");
+const passthrough = api.convertItemForSection(expItem, "experience", "research");
+assert.strictEqual(passthrough.company, "Club", "same-shape moves keep the organization");
 
 // --- helpers ---
 assert.strictEqual(json(api.normalizeSectionOrder(["skills", "bogus"])), json(["skills", "education", "experience", "projects", "research", "leadership"]));

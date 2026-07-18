@@ -279,6 +279,7 @@ const App = () => {
                 onResumeStateChange={persistResumeState}
                 onReplaceResume={clearCurrentResume}
                 onSignOut={handleSignOut}
+                supabaseClient={localMode ? null : supabaseClient}
                 signOutLabel={signOutLabel}
                 syncTargetLabel={localMode ? "Saved in this browser" : "Saved to Supabase"}
             />

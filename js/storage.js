@@ -64,6 +64,11 @@ const setLocalModeEnabled = (enabled) => {
 const createItemId = (prefix) =>
     `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+// Items parsed below this confidence get flagged for review (PRD P0.5).
+const PARSE_REVIEW_THRESHOLD = 0.65;
+
+const ENTRY_SECTION_KEYS = ["experience", "projects", "research", "leadership"];
+
 const createEmptyLibrary = () => ({
     education: [],
     experience: [],
@@ -98,6 +103,10 @@ const activeVariantBullets = (item) => {
     return active ? active.bullets.split("\n").map((text) => text.trim()).filter(Boolean) : [];
 };
 
+// Parser confidence rides along (when present) so the UI can flag items worth
+// reviewing; a field edit marks the item reviewed by raising it to 1.
+const itemConfidence = (entry) => (typeof entry.confidence === "number" ? { confidence: entry.confidence } : {});
+
 const createLibraryFromStructuredResume = (structuredResume = {}, source = "import") => ({
     education: (structuredResume.education || []).map((entry) => ({
         id: createItemId("edu"),
@@ -107,6 +116,7 @@ const createLibraryFromStructuredResume = (structuredResume = {}, source = "impo
         dates: entry.dates || "",
         included: true,
         source,
+        ...itemConfidence(entry),
     })),
     experience: (structuredResume.experience || []).map((entry) => ({
         id: createItemId("exp"),
@@ -116,6 +126,7 @@ const createLibraryFromStructuredResume = (structuredResume = {}, source = "impo
         dates: entry.dates || "",
         included: true,
         source,
+        ...itemConfidence(entry),
         ...createVariantSet(entry.bullets),
     })),
     projects: (structuredResume.projects || []).map((entry) => ({
@@ -125,6 +136,7 @@ const createLibraryFromStructuredResume = (structuredResume = {}, source = "impo
         dates: entry.dates || "",
         included: true,
         source,
+        ...itemConfidence(entry),
         ...createVariantSet(entry.bullets),
     })),
     research: (structuredResume.research || []).map((entry) => ({
@@ -135,6 +147,7 @@ const createLibraryFromStructuredResume = (structuredResume = {}, source = "impo
         dates: entry.dates || "",
         included: true,
         source,
+        ...itemConfidence(entry),
         ...createVariantSet(entry.bullets),
     })),
     leadership: (structuredResume.leadership || []).map((entry) => ({
@@ -145,6 +158,7 @@ const createLibraryFromStructuredResume = (structuredResume = {}, source = "impo
         dates: entry.dates || "",
         included: true,
         source,
+        ...itemConfidence(entry),
         ...createVariantSet(entry.bullets),
     })),
     skills: (structuredResume.skills || []).map((entry) => ({
@@ -153,8 +167,51 @@ const createLibraryFromStructuredResume = (structuredResume = {}, source = "impo
         items: entry.items || [],
         included: true,
         source,
+        ...itemConfidence(entry),
     })),
 });
+
+const isFlaggedItem = (item) =>
+    typeof item.confidence === "number" && item.confidence < PARSE_REVIEW_THRESHOLD;
+
+const countLibraryItems = (library) =>
+    RESUME_SECTION_KEYS.reduce((total, key) => total + (library?.[key] || []).length, 0);
+
+const countFlaggedItems = (library) =>
+    RESUME_SECTION_KEYS.reduce((total, key) => total + (library?.[key] || []).filter(isFlaggedItem).length, 0);
+
+// Post-import review state shown by the dashboard banner (PRD P0.5).
+const createParseStats = (library, source) => ({
+    source,
+    itemCount: countLibraryItems(library),
+    flaggedCount: countFlaggedItems(library),
+    importedAt: new Date().toISOString(),
+    reviewedAt: null,
+});
+
+// Quick-fix: move a misfiled entry between entry-like sections, converting the
+// shape where needed (projects use name/technologies instead of title/company).
+const convertItemForSection = (item, fromSection, toSection) => {
+    if (fromSection === toSection) return item;
+    if (!ENTRY_SECTION_KEYS.includes(fromSection) || !ENTRY_SECTION_KEYS.includes(toSection)) return null;
+
+    const base = {
+        id: item.id,
+        dates: item.dates || "",
+        included: item.included !== false,
+        source: item.source,
+        selectedVariantId: item.selectedVariantId,
+        variants: item.variants || [],
+        ...itemConfidence(item),
+    };
+    if (toSection === "projects") {
+        return { ...base, name: item.title || item.name || "", technologies: item.technologies || [] };
+    }
+    if (fromSection === "projects") {
+        return { ...base, title: item.name || "", company: "", location: "" };
+    }
+    return { ...base, title: item.title || "", company: item.company || "", location: item.location || "" };
+};
 
 const mergeLibraries = (base, extra) =>
     Object.fromEntries(
@@ -282,12 +339,14 @@ const buildResumeStateProjections = (state) => {
 
 const createResumeStateFromUpload = (file, format, parsedResume) => {
     const basics = parsedResume.structuredResume.basics || {};
+    const library = createLibraryFromStructuredResume(parsedResume.structuredResume, file.name);
     return buildResumeStateProjections({
         personalInfo: fillEmptyPersonalInfo(
             { name: "", email: "", phone: "", linkedin: "", github: "", portfolio: "" },
             basics
         ),
-        library: createLibraryFromStructuredResume(parsedResume.structuredResume, file.name),
+        library,
+        parseStats: createParseStats(library, file.name),
         sectionOrder: normalizeSectionOrder(),
         rawText: parsedResume.rawText,
         rawLines: parsedResume.rawLines,

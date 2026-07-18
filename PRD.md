@@ -107,11 +107,15 @@ templates suite; browser-verified.
 
 ### P0.5 — Parse quality floor
 
-- [ ] LLM parse-fallback: Supabase Edge Function (`/functions/parse-resume`) holding
-      the LLM key; client sends raw extracted text only when average parser confidence
-      < 0.65 or the user clicks "Fix parsing with AI".
-- [ ] Review screen: post-import side-by-side (original preview vs parsed cards) with
-      per-section confidence flags and one-click merge/split/reassign fixes.
+- [x] Review flow: post-import banner with item/flagged counts; per-item confidence
+      flags (amber dot, threshold 0.65) on library cards; editing a field marks the
+      item reviewed; move-to-section quick fix for misfiled entries; the Original
+      tab remains the side-by-side comparison.
+- [x] LLM parse-fallback code: `supabase/functions/parse-resume` (Anthropic SDK,
+      `claude-opus-4-8`, structured-outputs schema, JWT-gated, CORS) + `js/aiParse.js`
+      client + "Fix parsing with AI" (signed-in users; replaces same-source items).
+- [ ] Owner action: `supabase functions deploy parse-resume` +
+      `supabase secrets set ANTHROPIC_API_KEY=...` on the hosted project.
 - [ ] Measure: parse-quality metric on 50 real resumes; ≥70% zero-fix before P1.
 
 ### P1 — The wedge
