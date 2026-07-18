@@ -436,6 +436,9 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const [coverLetterText, setCoverLetterText] = useState("");
     const [coverLetterSubject, setCoverLetterSubject] = useState("");
     const [coverLetterLoading, setCoverLetterLoading] = useState(false);
+    const [applications, setApplications] = useState(resumeState?.applications || []);
+    const [applicationsOpen, setApplicationsOpen] = useState(false);
+    const [newApplication, setNewApplication] = useState({ company: "", role: "" });
     // Snapshot of (library, sectionOrder) taken right before tailoring applies,
     // so "Undo tailoring" can restore the user's manual selection.
     const preTailorRef = useRef(null);
@@ -469,7 +472,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         const saveTimeout = setTimeout(async () => {
             try {
                 const { jobs: _legacyJobs, ...latest } = resumeStateRef.current || {};
-                await onResumeStateChange(buildResumeStateProjections({ ...latest, personalInfo, library, sectionOrder, selectedTemplateId, parseStats }));
+                await onResumeStateChange(buildResumeStateProjections({ ...latest, personalInfo, library, sectionOrder, selectedTemplateId, parseStats, applications }));
                 setSyncStatus("synced");
             } catch (error) {
                 console.error("Error saving data:", error);
@@ -478,7 +481,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
         }, 1000);
 
         return () => clearTimeout(saveTimeout);
-    }, [personalInfo, library, sectionOrder, selectedTemplateId, parseStats]);
+    }, [personalInfo, library, sectionOrder, selectedTemplateId, parseStats, applications]);
 
     const toggleExpanded = (id) => setExpandedItems((expanded) => ({ ...expanded, [id]: !expanded[id] }));
 
@@ -566,9 +569,11 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             setLibrary((lib) => mergeLibraries(lib, incoming));
             setPersonalInfo((info) => fillEmptyPersonalInfo(info, parsed.structuredResume.basics || {}));
             lastImportRef.current = { source: file.name, rawText: parsed.rawText };
-            setParseStats(createParseStats(incoming, file.name));
+            const stats = createParseStats(incoming, file.name);
+            setParseStats(stats);
             setAiError("");
             setImportStatus({ loading: false, error: "" });
+            trackEvent(supabaseClient, "import_done", { kind: "file", itemCount: stats.itemCount, flaggedCount: stats.flaggedCount });
         } catch (error) {
             setImportStatus({ loading: false, error: error.message || "Could not read this resume file." });
         }
@@ -582,11 +587,13 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             setLibrary((lib) => mergeLibraries(lib, incoming));
             setPersonalInfo((info) => fillEmptyPersonalInfo(info, parsed.structuredResume.basics || {}));
             lastImportRef.current = { source, rawText: parsed.rawText };
-            setParseStats(createParseStats(incoming, source));
+            const stats = createParseStats(incoming, source);
+            setParseStats(stats);
             setAiError("");
             setPasteText("");
             setPasteOpen(false);
             setImportStatus({ loading: false, error: "" });
+            trackEvent(supabaseClient, "import_done", { kind: "paste", itemCount: stats.itemCount, flaggedCount: stats.flaggedCount });
         } catch (error) {
             setImportStatus({ loading: false, error: error.message || "Could not parse the pasted text." });
         }
@@ -605,6 +612,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             setTailorResult(result);
             setTailorOpen(false);
             setPreviewMode("edited");
+            trackEvent(supabaseClient, "tailor_done", { score: result.matchReport?.score ?? null });
         } catch (error) {
             setTailorError(error.message || "AI tailoring failed.");
         } finally {
@@ -629,6 +637,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             setCoverLetterText(result.coverLetter);
             setCoverLetterSubject(result.subject || "");
             setTailorOpen(false);
+            trackEvent(supabaseClient, "cover_letter_done", {});
         } catch (error) {
             setTailorError(error.message || "Cover letter generation failed.");
         } finally {
@@ -644,6 +653,40 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
 
     const handleDownloadCoverLetter = () => {
         downloadTextFile(`${exportBaseName()}_Cover_Letter.txt`, coverLetterText, "text/plain;charset=utf-8");
+    };
+
+    // --- application tracker (PRD P2) ---
+    const handleTrackApplication = (event) => {
+        event.preventDefault();
+        if (!newApplication.company.trim() && !newApplication.role.trim()) return;
+        const application = createApplication({
+            company: newApplication.company,
+            role: newApplication.role,
+            jobDescription,
+            matchScore: tailorResult?.matchReport?.score ?? null,
+            library,
+            sectionOrder,
+            templateId: selectedTemplateId,
+        });
+        setApplications((current) => [application, ...current]);
+        setNewApplication({ company: "", role: "" });
+        trackEvent(supabaseClient, "application_tracked", { templateId: selectedTemplateId, hasScore: application.matchScore !== null });
+    };
+
+    const handleApplicationStatus = (id, status) => {
+        setApplications((current) => updateApplication(current, id, { status }));
+        trackEvent(supabaseClient, "application_status", { status });
+    };
+
+    const handleDeleteApplication = (id) => setApplications((current) => current.filter((application) => application.id !== id));
+
+    // Restore exactly the resume version this application was sent with.
+    const handleRestoreApplication = (application) => {
+        setLibrary((lib) => restoreApplicationSnapshot(lib, application.snapshot));
+        setSectionOrder(normalizeSectionOrder(application.snapshot?.sectionOrder));
+        if (application.snapshot?.templateId) setSelectedTemplateId(application.snapshot.templateId);
+        setApplicationsOpen(false);
+        setPreviewMode("edited");
     };
 
     const dismissReview = () => setParseStats((stats) => (stats ? { ...stats, reviewedAt: new Date().toISOString() } : stats));
@@ -728,21 +771,29 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             .catch((error) => alert(`Failed to copy LaTeX: ${error}`));
     };
 
+    // Activation (upload → export, same session) is computed server-side from
+    // import_done + export events sharing a session_id.
+    const trackExport = (kind) => trackEvent(supabaseClient, "export", { kind, templateId: selectedTemplateId });
+
     const handleDownloadLatex = () => {
         downloadTextFile(`${exportBaseName()}.tex`, exportLatex(), "application/x-tex;charset=utf-8");
+        trackExport("tex");
     };
 
     const handleDownloadHtml = () => {
         downloadTextFile(`${exportBaseName()}.html`, generateStandaloneHtml(structuredResume, selectedTemplate), "text/html;charset=utf-8");
+        trackExport("html");
     };
 
     const handleDownloadDoc = () => {
         downloadTextFile(`${exportBaseName()}.doc`, generateDocHtml(structuredResume, selectedTemplate), "application/msword;charset=utf-8");
+        trackExport("doc");
     };
 
     const handleDownloadPdf = () => {
         setPreviewMode("edited");
         setTimeout(() => window.print(), 100);
+        trackExport("print-pdf");
     };
 
     // Overleaf's "open in Overleaf" API: POST the LaTeX source as `snip` to
@@ -1010,6 +1061,13 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     >
                         🎯 Tailor to Job
                     </button>
+                    <button
+                        onClick={() => setApplicationsOpen(!applicationsOpen)}
+                        title="Track where you applied, with the exact resume version each application used"
+                        className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg"
+                    >
+                        📋 Applications{applications.length > 0 && ` (${applications.length})`}
+                    </button>
                     <button onClick={handleCopyLatex} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg transition-transform active:scale-95">
                         Copy LaTeX
                     </button>
@@ -1095,6 +1153,87 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                                 </div>
                             </div>
                         )}
+                        {applicationsOpen && (() => {
+                            const stats = applicationStats(applications);
+                            const templateEntries = Object.entries(stats.perTemplate);
+                            return (
+                                <div className="w-full bg-app-card border border-app-border rounded-2xl p-4 space-y-3 text-xs">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="font-semibold text-white text-sm">Applications</h3>
+                                        <button onClick={() => setApplicationsOpen(false)} className="text-app-textMuted hover:text-white text-xs">✕</button>
+                                    </div>
+
+                                    <form onSubmit={handleTrackApplication} className="flex gap-2 items-center">
+                                        <input
+                                            placeholder="Company"
+                                            className="flex-1 bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-app-textMuted"
+                                            value={newApplication.company}
+                                            onChange={(event) => setNewApplication({ ...newApplication, company: event.target.value })}
+                                        />
+                                        <input
+                                            placeholder="Role"
+                                            className="flex-1 bg-[#0a0a0a] border border-app-border rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-app-textMuted"
+                                            value={newApplication.role}
+                                            onChange={(event) => setNewApplication({ ...newApplication, role: event.target.value })}
+                                        />
+                                        <button type="submit" className="shrink-0 bg-white text-black text-xs font-semibold px-3 py-2 rounded-lg hover:bg-gray-200">
+                                            Track current resume
+                                        </button>
+                                    </form>
+                                    <p className="text-[11px] text-app-textMuted">
+                                        Snapshots exactly which items, wording variants, section order, and template are active right now{tailorResult?.matchReport?.score != null ? ` (match score ${tailorResult.matchReport.score}/100 attached)` : ""} — restore that version any time.
+                                    </p>
+
+                                    {stats.total > 0 && (
+                                        <div className="flex flex-wrap gap-2 items-center border-t border-app-border/60 pt-3">
+                                            <span className="px-2 py-0.5 rounded-full bg-[#0a0a0a] border border-app-border text-app-textMuted">{stats.total} tracked</span>
+                                            <span className="px-2 py-0.5 rounded-full bg-[#0a0a0a] border border-app-border text-app-textMuted" title="Applications that reached response, interview, or offer">
+                                                {Math.round(stats.responseRate * 100)}% response rate
+                                            </span>
+                                            {templateEntries.map(([templateId, counts]) => (
+                                                <span key={templateId} className="px-2 py-0.5 rounded-full bg-[#0a0a0a] border border-app-border text-app-textMuted" title={`${counts.responses} of ${counts.applications} applications with this template got a response`}>
+                                                    {getResumeTemplate(templateId)?.name || templateId}: {counts.responses}/{counts.applications}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {applications.length === 0 ? (
+                                        <p className="text-app-textMuted">Nothing tracked yet. When you send an application, track it here with the resume version you used.</p>
+                                    ) : (
+                                        <div className="space-y-2 max-h-72 overflow-y-auto">
+                                            {applications.map((application) => (
+                                                <div key={application.id} className="flex items-center gap-2 bg-[#0a0a0a] border border-app-border rounded-xl px-3 py-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-white font-medium truncate">
+                                                            {[application.company, application.role].filter(Boolean).join(" — ") || "Untitled application"}
+                                                        </p>
+                                                        <p className="text-[11px] text-app-textMuted truncate">
+                                                            {new Date(application.createdAt).toLocaleDateString()}
+                                                            {" · "}{getResumeTemplate(application.snapshot?.templateId)?.name || application.snapshot?.templateId}
+                                                            {application.matchScore != null && ` · match ${application.matchScore}/100`}
+                                                        </p>
+                                                    </div>
+                                                    <select
+                                                        value={application.status}
+                                                        onChange={(event) => handleApplicationStatus(application.id, event.target.value)}
+                                                        className="bg-app-card border border-app-border rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+                                                    >
+                                                        {APPLICATION_STATUSES.map((status) => (
+                                                            <option key={status} value={status}>{status}</option>
+                                                        ))}
+                                                    </select>
+                                                    <button type="button" onClick={() => handleRestoreApplication(application)} title="Restore the exact resume version this application used" className="border border-app-border px-2.5 py-1 rounded-lg text-app-textMuted hover:text-white">
+                                                        Restore
+                                                    </button>
+                                                    <button type="button" onClick={() => handleDeleteApplication(application.id)} className="text-red-400 hover:text-red-300 px-1">✕</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
                         {coverLetterText && (
                             <div className="w-full bg-app-card border border-app-border rounded-2xl p-4 space-y-3 text-xs">
                                 <div className="flex items-center justify-between">
@@ -1166,7 +1305,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                                 {listResumeTemplates().map((tpl) => (
                                     <button
                                         key={tpl.id}
-                                        onClick={() => setSelectedTemplateId(tpl.id)}
+                                        onClick={() => { setSelectedTemplateId(tpl.id); trackEvent(supabaseClient, "template_switch", { templateId: tpl.id }); }}
                                         title={tpl.tagline}
                                         className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${selectedTemplateId === tpl.id ? "bg-white text-black border-white" : "bg-app-card text-app-textMuted border-app-border hover:text-white"}`}
                                     >

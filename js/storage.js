@@ -343,6 +343,68 @@ const applyTailoringToLibrary = (library, tailorResult = {}) => {
     })]));
 };
 
+// ---------------------------------------------------------------------------
+// Application tracker (PRD P2): each tracked application snapshots exactly
+// which items, wording variants, section order, and template produced the
+// submitted resume — so outcomes can be attributed to concrete content
+// choices, and any past version can be restored with one click.
+// ---------------------------------------------------------------------------
+
+const APPLICATION_STATUSES = ["applied", "response", "interview", "offer", "rejected"];
+const APPLICATION_RESPONSE_STATUSES = ["response", "interview", "offer"];
+
+const snapshotLibrarySelection = (library, sectionOrder, templateId) => ({
+    includedItemIds: RESUME_SECTION_KEYS.flatMap((key) =>
+        (library?.[key] || []).filter((item) => item.included).map((item) => item.id)),
+    variantChoices: RESUME_SECTION_KEYS.flatMap((key) =>
+        (library?.[key] || [])
+            .filter((item) => (item.variants || []).length > 1 && item.selectedVariantId)
+            .map((item) => ({ itemId: item.id, variantId: item.selectedVariantId }))),
+    sectionOrder: normalizeSectionOrder(sectionOrder),
+    templateId: templateId || "jakes",
+});
+
+const createApplication = ({ company, role, jobDescription, matchScore, library, sectionOrder, templateId }) => ({
+    id: createItemId("app"),
+    company: String(company || "").trim(),
+    role: String(role || "").trim(),
+    jobDescription: String(jobDescription || "").slice(0, 20000),
+    matchScore: typeof matchScore === "number" ? matchScore : null,
+    status: "applied",
+    notes: "",
+    snapshot: snapshotLibrarySelection(library, sectionOrder, templateId),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+});
+
+const updateApplication = (applications, id, patch) =>
+    (applications || []).map((application) =>
+        application.id === id ? { ...application, ...patch, updatedAt: new Date().toISOString() } : application);
+
+// Restoring "the resume I sent them" is the same operation as applying a
+// tailoring result: set included flags and variant choices from the snapshot.
+const restoreApplicationSnapshot = (library, snapshot = {}) =>
+    applyTailoringToLibrary(library, {
+        includedItemIds: snapshot.includedItemIds || [],
+        variantChoices: snapshot.variantChoices || [],
+    });
+
+// Outcome analytics (PRD P2): honest response rates overall and per template.
+const applicationStats = (applications = []) => {
+    const total = applications.length;
+    const byStatus = Object.fromEntries(
+        APPLICATION_STATUSES.map((status) => [status, applications.filter((application) => application.status === status).length]));
+    const responded = applications.filter((application) => APPLICATION_RESPONSE_STATUSES.includes(application.status)).length;
+    const perTemplate = {};
+    applications.forEach((application) => {
+        const key = application.snapshot?.templateId || "unknown";
+        perTemplate[key] = perTemplate[key] || { applications: 0, responses: 0 };
+        perTemplate[key].applications += 1;
+        if (APPLICATION_RESPONSE_STATUSES.includes(application.status)) perTemplate[key].responses += 1;
+    });
+    return { total, byStatus, responded, responseRate: total ? responded / total : 0, perTemplate };
+};
+
 // Recomputes the derived fields (structuredResume + exports) from the library.
 const buildResumeStateProjections = (state) => {
     const structuredResume = libraryToStructuredResume(state.personalInfo, state.library, state.sectionOrder);

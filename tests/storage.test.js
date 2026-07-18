@@ -57,6 +57,12 @@ globalThis.storageTestApi = {
   convertItemForSection,
   PARSE_REVIEW_THRESHOLD,
   applyTailoringToLibrary,
+  snapshotLibrarySelection,
+  createApplication,
+  updateApplication,
+  restoreApplicationSnapshot,
+  applicationStats,
+  APPLICATION_STATUSES,
 };
 `, context);
     vm.runInContext(`${read("../js/tailor.js")}
@@ -307,5 +313,64 @@ assert.strictEqual(api.loadResumeState("user-1"), null);
 const failingApi = buildContext(createLocalStorageStub({ failOnSet: true }));
 assert.strictEqual(failingApi.saveResumeState({ big: "state" }, "user-1"), false);
 assert.doesNotThrow(() => failingApi.setLocalModeEnabled(true));
+
+// --- application tracker (PRD P2): snapshot, restore, outcome stats ---
+const trackerLibrary = api.createEmptyLibrary();
+trackerLibrary.experience = [
+    {
+        id: "t1", title: "A", company: "CoA", dates: "2024", included: true,
+        selectedVariantId: "v2",
+        variants: [{ id: "v1", label: "One", bullets: "x" }, { id: "v2", label: "Two", bullets: "y" }],
+    },
+    {
+        id: "t2", title: "B", company: "CoB", dates: "2023", included: false,
+        selectedVariantId: "v1",
+        variants: [{ id: "v1", label: "One", bullets: "z" }],
+    },
+];
+trackerLibrary.skills = [{ id: "t3", category: "Tools", items: ["Git"], included: true }];
+
+const application = api.createApplication({
+    company: "  Acme  ",
+    role: "Engineer",
+    jobDescription: "JD text",
+    matchScore: 82,
+    library: trackerLibrary,
+    sectionOrder: ["skills", "experience"],
+    templateId: "modern",
+});
+assert.strictEqual(application.company, "Acme", "company is trimmed");
+assert.strictEqual(application.status, "applied");
+assert.strictEqual(application.matchScore, 82);
+assert.strictEqual(json(application.snapshot.includedItemIds), json(["t1", "t3"]), "snapshot captures only included items");
+assert.strictEqual(json(application.snapshot.variantChoices), json([{ itemId: "t1", variantId: "v2" }]), "single-variant items are omitted");
+assert.strictEqual(application.snapshot.templateId, "modern");
+assert.strictEqual(application.snapshot.sectionOrder[0], "skills");
+
+// Restore round trip: change the selection, then restore the snapshot.
+let mutated = { ...trackerLibrary };
+mutated.experience = mutated.experience.map((item) => ({ ...item, included: item.id === "t2", selectedVariantId: "v1" }));
+const restored = api.restoreApplicationSnapshot(mutated, application.snapshot);
+assert.strictEqual(restored.experience.find((item) => item.id === "t1").included, true);
+assert.strictEqual(restored.experience.find((item) => item.id === "t1").selectedVariantId, "v2");
+assert.strictEqual(restored.experience.find((item) => item.id === "t2").included, false);
+assert.strictEqual(restored.skills.find((item) => item.id === "t3").included, true);
+
+// Status updates stamp updatedAt and leave other applications alone.
+const listed = [application, api.createApplication({ company: "Beta", role: "", library: trackerLibrary, sectionOrder: [], templateId: "jakes" })];
+const afterStatus = api.updateApplication(listed, application.id, { status: "interview" });
+assert.strictEqual(afterStatus[0].status, "interview");
+assert.strictEqual(afterStatus[1].status, "applied");
+
+// Outcome stats: response rate counts response/interview/offer, per-template attribution.
+const appStats = api.applicationStats(afterStatus);
+assert.strictEqual(appStats.total, 2);
+assert.strictEqual(appStats.responded, 1);
+assert.strictEqual(appStats.responseRate, 0.5);
+assert.strictEqual(appStats.byStatus.interview, 1);
+assert.strictEqual(appStats.perTemplate.modern.responses, 1);
+assert.strictEqual(appStats.perTemplate.jakes.responses, 0);
+assert.strictEqual(api.applicationStats([]).responseRate, 0);
+assert(api.APPLICATION_STATUSES.includes("rejected"));
 
 console.log("storage tests passed");

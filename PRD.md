@@ -144,8 +144,21 @@ templates suite; browser-verified.
 
 ### P2 — The business
 
-- [ ] Application tracker (job, JD, resume version used, status, dates).
-- [ ] Outcome analytics: which template/variant/bullet versions got responses.
+- [x] Application tracker: 📋 Applications panel — track (company, role, JD,
+      match score) with a snapshot of the exact included items, wording
+      variants, section order, and template; status pipeline
+      applied → response → interview → offer/rejected; one-click **Restore**
+      re-applies the sent version (reuses the tailoring apply path). Lives in
+      `resume_state` jsonb — no new tables.
+- [x] Outcome analytics v1: per-template response attribution and overall
+      response rate computed from tracker snapshots, shown in the panel.
+      (Variant/bullet-level attribution: needs volume, later.)
+- [x] North-star instrumentation (PRD §1): `js/metrics.js` fire-and-forget
+      events (`import_done`, `template_switch`, `export`, `tailor_done`,
+      `cover_letter_done`, `application_tracked`, `application_status`) into
+      an insert-only RLS `events` table (created on the hosted project).
+      Activation/time-to-wow/W1 retention are derivable server-side from
+      session_id + created_at. Guest mode sends nothing.
 - [ ] Minerva career-center pilot (B2B seat model validation).
 - [ ] Share/referral loop; template gallery as public landing pages (SEO).
 
