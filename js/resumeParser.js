@@ -12,7 +12,7 @@ const SECTION_ALIASES = {
     awards: [/^(awards|certifications|honors|achievements)$/i],
 };
 
-const DATE_PATTERN = /((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?)\s*(-|–|—|to)\s*((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|Present|Current|\d{4})|Expected\s+(May|Jun|Dec|August|December)?\s*\d{4}|\b(20\d{2}|19\d{2})\s*(-|–|—|to)\s*((20\d{2}|19\d{2})|Present|Current)\b|\b(20\d{2}|19\d{2})\b/i;
+const DATE_PATTERN = /((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?)\s*(-{1,3}|–|—|to)\s*((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|Present|Current|\d{4})|Expected\s+(May|Jun|Dec|August|December)?\s*\d{4}|\b(20\d{2}|19\d{2})\s*(-{1,3}|–|—|to)\s*((20\d{2}|19\d{2})|Present|Current)\b|\b(20\d{2}|19\d{2})\b/i;
 const BULLET_PATTERN = /^([•●▪◦*-])\s*/;
 
 const emptyStructuredResume = () => ({
@@ -199,7 +199,9 @@ const stripLatex = (source) =>
         .replace(/[{}$~]/g, " ")
         .replace(/\u0001/g, "$")
         // Remaining LaTeX escapes become their literal characters.
-        .replace(/\\([%&#_])/g, "$1");
+        .replace(/\\([%&#_])/g, "$1")
+        // LaTeX en/em dashes back to a single en dash ("May 2025 -- Aug 2025").
+        .replace(/ -{2,3} /g, " – ");
 
 // Text sources have no geometry, but wrapped bullets still need merging —
 // mergeWrappedBullets has a text-mode heuristic for x0 === 0 lines.

@@ -123,7 +123,7 @@ const projected = api.libraryToStructuredResume(
     ["skills", "experience"]
 );
 assert.strictEqual(projected.experience.length, 1, "excluded items must not be exported");
-assert.strictEqual(json(projected.experience[0].bullets), json(["second line", "another"]), "active variant supplies the bullets");
+assert.strictEqual(json(projected.experience[0].bullets), json(["Second line", "Another"]), "active variant supplies the bullets (sentence-capitalized)");
 assert.strictEqual(projected.basics.github, "gh");
 assert.strictEqual(json(projected.sectionOrder), json(["skills", "experience", "education", "projects", "research", "leadership"]));
 
@@ -182,6 +182,33 @@ assert.strictEqual(migrated.structuredResume.experience.length, 1, "projection i
 assert.strictEqual(migrated.jobs, undefined, "legacy jobs key must be dropped");
 assert.strictEqual(migrated.originalPreview.kind, "text", "upload artifacts must survive migration");
 assert.strictEqual(json(api.migrateResumeState(migrated).sectionOrder), json(DEFAULT_ORDER), "v2 states pass through");
+
+// --- export polish: consistent bullets, normalized dates, deduped skills ---
+const polishLibrary = api.createEmptyLibrary();
+polishLibrary.experience = [{
+    id: "px", title: "Dev", company: "Co", location: "", dates: "Jan 2021-present", included: true,
+    selectedVariantId: "v1",
+    variants: [{ id: "v1", label: "D", bullets: "shipped the roadmap ahead of schedule.\nreduced costs by 20%.\niOS build pipeline hardening" }],
+}];
+polishLibrary.skills = [{ id: "sx", category: "Languages", items: ["Python", "python ", "Go", ""], included: true }];
+const polishedResume = api.libraryToStructuredResume({ name: "X" }, polishLibrary, undefined);
+assert.strictEqual(polishedResume.experience[0].dates, "Jan 2021 – Present", "dates must normalize to 'Mon YYYY – Mon YYYY'");
+assert.strictEqual(
+    json(polishedResume.experience[0].bullets),
+    json(["Shipped the roadmap ahead of schedule.", "Reduced costs by 20%.", "iOS build pipeline hardening."]),
+    "bullets must be capitalized (brand casing kept) with consistent periods"
+);
+assert.strictEqual(json(polishedResume.skills[0].items), json(["Python", "Go"]), "skill items must be trimmed and deduped");
+
+// Majority without periods -> stray periods are stripped instead
+const stripLibrary = api.createEmptyLibrary();
+stripLibrary.experience = [{
+    id: "sx2", title: "Dev", company: "Co", location: "", dates: "2020", included: true,
+    selectedVariantId: "v1",
+    variants: [{ id: "v1", label: "D", bullets: "Did a thing\nDid another thing\nEnded with a period." }],
+}];
+const strippedResume = api.libraryToStructuredResume({ name: "X" }, stripLibrary, undefined);
+assert.strictEqual(json(strippedResume.experience[0].bullets), json(["Did a thing", "Did another thing", "Ended with a period"]));
 
 // --- helpers ---
 assert.strictEqual(json(api.normalizeSectionOrder(["skills", "bogus"])), json(["skills", "education", "experience", "projects", "research", "leadership"]));

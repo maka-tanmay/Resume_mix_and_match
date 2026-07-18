@@ -169,17 +169,71 @@ const fillEmptyPersonalInfo = (personalInfo, basics = {}) => {
     return filled;
 };
 
+// ---------------------------------------------------------------------------
+// Export polish: recruiters and ATS parsers reward consistency, so the
+// projection normalizes formatting (the library keeps the user's raw text).
+// ---------------------------------------------------------------------------
+
+// Capitalize sentence-style bullets; leave brand casing ("iOS app...") alone.
+const polishBulletText = (text) => {
+    const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+    return /^[a-z][a-z]/.test(cleaned) ? cleaned[0].toUpperCase() + cleaned.slice(1) : cleaned;
+};
+
+// Document-wide consistent terminal punctuation: if most bullets end with a
+// period, add one everywhere; otherwise strip stray trailing periods.
+const applyConsistentBulletStyle = (resume) => {
+    const sections = ["experience", "projects", "research", "leadership"];
+    const allBullets = sections.flatMap((key) => (resume[key] || []).flatMap((entry) => entry.bullets || []));
+    if (!allBullets.length) return resume;
+
+    const withPeriod = allBullets.filter((bullet) => /[.!?]$/.test(bullet)).length;
+    const addPeriods = withPeriod * 2 >= allBullets.length;
+
+    sections.forEach((key) => (resume[key] || []).forEach((entry) => {
+        entry.bullets = (entry.bullets || []).map((bullet) => {
+            if (addPeriods) return /[.!?:;]$/.test(bullet) ? bullet : `${bullet}.`;
+            return bullet.replace(/(?<!\.)\.$/, "");
+        });
+    }));
+    return resume;
+};
+
+// "Jan 2021-present" -> "Jan 2021 – Present" (en dash renders as -- in LaTeX).
+const normalizeDatesDisplay = (dates) => {
+    const cleaned = String(dates || "").replace(/\s+/g, " ").trim();
+    if (!cleaned) return "";
+    return cleaned
+        .replace(/\s*(?:-{1,3}|–|—|\bto\b)\s*/i, " – ")
+        .replace(/\bpresent\b/i, "Present")
+        .replace(/\bcurrent\b/i, "Current");
+};
+
+const dedupeSkillItems = (items = []) => {
+    const seen = new Set();
+    return items
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+        .filter((item) => {
+            const key = item.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+};
+
 const libraryToStructuredResume = (personalInfo = {}, library = createEmptyLibrary(), sectionOrder) => {
     const included = (key) => (library[key] || []).filter((item) => item.included);
+    const polishedBullets = (item) => activeVariantBullets(item).map(polishBulletText).filter(Boolean);
     const entryToStructured = (item) => ({
         title: item.title || "",
         company: item.company || "",
         location: item.location || "",
-        dates: item.dates || "",
-        bullets: activeVariantBullets(item),
+        dates: normalizeDatesDisplay(item.dates),
+        bullets: polishedBullets(item),
     });
 
-    return {
+    return applyConsistentBulletStyle({
         basics: {
             name: personalInfo.name || "",
             headline: "",
@@ -193,24 +247,24 @@ const libraryToStructuredResume = (personalInfo = {}, library = createEmptyLibra
             school: item.school || "",
             degree: item.degree || "",
             location: item.location || "",
-            dates: item.dates || "",
+            dates: normalizeDatesDisplay(item.dates),
         })),
         experience: included("experience").map(entryToStructured),
         projects: included("projects").map((item) => ({
             name: item.name || "",
-            technologies: item.technologies || [],
-            dates: item.dates || "",
-            bullets: activeVariantBullets(item),
+            technologies: dedupeSkillItems(item.technologies),
+            dates: normalizeDatesDisplay(item.dates),
+            bullets: polishedBullets(item),
         })),
         research: included("research").map(entryToStructured),
         leadership: included("leadership").map(entryToStructured),
         skills: included("skills").map((item) => ({
             category: item.category || "Skills",
-            items: item.items || [],
+            items: dedupeSkillItems(item.items),
         })),
         customSections: [],
         sectionOrder: normalizeSectionOrder(sectionOrder),
-    };
+    });
 };
 
 // Recomputes the derived fields (structuredResume + exports) from the library.

@@ -378,6 +378,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const structuredResume = libraryToStructuredResume(personalInfo, library, sectionOrder);
     const currentLatex = generateStructuredLatex(structuredResume);
     const hasIncludedContent = RESUME_SECTION_KEYS.some((key) => (structuredResume[key] || []).length);
+    const estimatedPages = estimateResumePages(structuredResume);
 
     useEffect(() => {
         if (initialLoad.current) {
@@ -515,6 +516,12 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
 
     const exportLatex = () => (previewMode === "latex" ? latexDraft : currentLatex);
 
+    // "Tanmay_Maka_Resume.tex" reads far better to recruiters than "resume.tex".
+    const exportBaseName = () => {
+        const slug = (personalInfo.name || "").trim().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+        return slug ? `${slug}_Resume` : "Resume";
+    };
+
     const handleCopyLatex = () => {
         navigator.clipboard
             .writeText(exportLatex())
@@ -523,15 +530,15 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     };
 
     const handleDownloadLatex = () => {
-        downloadTextFile("resume.tex", exportLatex(), "application/x-tex;charset=utf-8");
+        downloadTextFile(`${exportBaseName()}.tex`, exportLatex(), "application/x-tex;charset=utf-8");
     };
 
     const handleDownloadHtml = () => {
-        downloadTextFile("resume.html", generateStandaloneHtml(structuredResume), "text/html;charset=utf-8");
+        downloadTextFile(`${exportBaseName()}.html`, generateStandaloneHtml(structuredResume), "text/html;charset=utf-8");
     };
 
     const handleDownloadDoc = () => {
-        downloadTextFile("resume.doc", generateDocHtml(structuredResume), "application/msword;charset=utf-8");
+        downloadTextFile(`${exportBaseName()}.doc`, generateDocHtml(structuredResume), "application/msword;charset=utf-8");
     };
 
     const handleDownloadPdf = () => {
@@ -687,20 +694,34 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             </div>
 
             <div className="flex-1 flex flex-col bg-[#111111] relative">
-                <div className="absolute top-6 left-6 z-10 flex items-center gap-2 bg-[#1C1C1E] border border-app-border px-3 py-1.5 rounded-full text-xs">
-                    {syncStatus === "synced" && (
-                        <>
-                            <IconCloudCheck />
-                            <span className="text-app-textMuted">{syncTargetLabel}</span>
-                        </>
+                <div className="absolute top-6 left-6 z-10 flex items-center gap-2">
+                    <div className="flex items-center gap-2 bg-[#1C1C1E] border border-app-border px-3 py-1.5 rounded-full text-xs">
+                        {syncStatus === "synced" && (
+                            <>
+                                <IconCloudCheck />
+                                <span className="text-app-textMuted">{syncTargetLabel}</span>
+                            </>
+                        )}
+                        {syncStatus === "saving" && (
+                            <>
+                                <IconCloudSync />
+                                <span className="text-orange-400">Saving changes...</span>
+                            </>
+                        )}
+                        {syncStatus === "error" && <span className="text-red-500">Save Error</span>}
+                    </div>
+                    {hasIncludedContent && (
+                        <div
+                            className="bg-[#1C1C1E] border border-app-border px-3 py-1.5 rounded-full text-xs"
+                            title="Rough estimate for 11pt letter paper. One page is the safest bet for early-career resumes."
+                        >
+                            {estimatedPages <= 1.02 ? (
+                                <span className="text-app-textMuted">≈ 1 page</span>
+                            ) : (
+                                <span className="text-orange-400">≈ {estimatedPages.toFixed(1)} pages — trim to 1</span>
+                            )}
+                        </div>
                     )}
-                    {syncStatus === "saving" && (
-                        <>
-                            <IconCloudSync />
-                            <span className="text-orange-400">Saving changes...</span>
-                        </>
-                    )}
-                    {syncStatus === "error" && <span className="text-red-500">Save Error</span>}
                 </div>
 
                 <div className="absolute top-6 right-6 z-10 flex gap-3 flex-wrap justify-end max-w-[820px]">

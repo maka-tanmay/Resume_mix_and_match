@@ -124,9 +124,15 @@ const latexPreamble = () => `\\documentclass[letterpaper,11pt]{article}
 \\newcommand{\\resumeSubHeadingListEnd}{\\end{itemize}}
 \\newcommand{\\resumeItemListStart}{\\begin{itemize}}
 \\newcommand{\\resumeItemListEnd}{\\end{itemize}\\vspace{-5pt}}
-
-\\begin{document}
 `;
+
+// PDF metadata: recruiters see the title in browser tabs, and ATS ingestion
+// benefits from an authored, titled document.
+const renderPdfMetadataLatex = (basics = {}) => {
+    if (!basics.name) return "";
+    const name = escapeLatex(basics.name);
+    return `\\hypersetup{pdftitle={${name} Resume}, pdfauthor={${name}}}`;
+};
 
 const renderHeaderLatex = (basics = {}) => {
     const parts = [];
@@ -216,10 +222,38 @@ const LATEX_SECTION_RENDERERS = {
 
 const generateStructuredLatex = (resume) => [
     latexPreamble(),
+    renderPdfMetadataLatex(resume.basics || {}),
+    "\\begin{document}",
     renderHeaderLatex(resume.basics || {}),
     ...resolveSectionOrder(resume).map((key) => LATEX_SECTION_RENDERERS[key](resume)),
     "\\end{document}",
 ].filter(Boolean).join("\n");
+
+// Rough one-page fit check for the Jake's template at 11pt letter
+// (~100 chars per line, ~48 lines per page). Used for the UI hint only.
+const estimateResumePages = (resume) => {
+    const CHARS_PER_LINE = 100;
+    const LINES_PER_PAGE = 48;
+    const textLines = (text) => Math.max(1, Math.ceil(String(text || "").length / CHARS_PER_LINE));
+    const bulletsLines = (bullets = []) => bullets.reduce((total, bullet) => total + textLines(bullet), 0);
+
+    let lines = 4; // name + contact row + surrounding spacing
+    resolveSectionOrder(resume).forEach((key) => {
+        const entries = resume[key] || [];
+        if (!entries.length) return;
+        lines += 2; // section title + rule
+        if (key === "education") {
+            lines += entries.length * 2;
+        } else if (key === "skills") {
+            lines += entries.reduce((total, skill) => total + textLines(`${skill.category}: ${(skill.items || []).join(", ")}`), 0);
+        } else if (key === "projects") {
+            entries.forEach((entry) => { lines += 1 + bulletsLines(entry.bullets); });
+        } else {
+            entries.forEach((entry) => { lines += 2 + bulletsLines(entry.bullets); });
+        }
+    });
+    return lines / LINES_PER_PAGE;
+};
 
 const escapeHtml = (value) =>
     String(value || "")

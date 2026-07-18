@@ -161,7 +161,7 @@ const roundtripResume = {
     basics: { name: "Jane Candidate", headline: "", phone: "(555) 111-2222", email: "jane@example.com", linkedin: "linkedin.com/in/jane", github: "github.com/jane", portfolio: "" },
     education: [{ school: "State University", degree: "B.S. Computer Science", location: "San Jose, CA", dates: "Aug 2023 - May 2027" }],
     experience: [
-        { title: "Software Engineer Intern", company: "CloudWorks", location: "San Francisco, CA", dates: "May 2025 - Aug 2025", bullets: ["Built data pipeline processing 2M events daily", "Cut costs by 35% and saved $500k annually"] },
+        { title: "Software Engineer Intern", company: "CloudWorks", location: "San Francisco, CA", dates: "May 2025 – Aug 2025", bullets: ["Built data pipeline processing 2M events daily", "Cut costs by 35% and saved $500k annually"] },
         { title: "Engineering Intern", company: "UL Solutions", location: "Fremont, CA", dates: "May 2026 - Present", bullets: ["Executed automated compliance suites"] },
     ],
     projects: [{ name: "Gitlytics", technologies: ["Python", "Flask"], dates: "2024", bullets: ["Built REST API"] }],
@@ -189,7 +189,7 @@ assert.strictEqual(rt.experience.length, 2);
 assert.strictEqual(rt.experience[0].title, "Software Engineer Intern");
 assert.strictEqual(rt.experience[0].company, "CloudWorks");
 assert.strictEqual(rt.experience[0].location, "San Francisco, CA");
-assert.strictEqual(rt.experience[0].dates, "May 2025 - Aug 2025");
+assert.strictEqual(rt.experience[0].dates, "May 2025 – Aug 2025", "en-dash dates must survive the LaTeX '--' round trip");
 assert.strictEqual(JSON.stringify(rt.experience[0].bullets), JSON.stringify(roundtripResume.experience[0].bullets), "bullets (incl. % and $) must survive the round trip");
 assert.strictEqual(rt.experience[1].company, "UL Solutions");
 assert.strictEqual(rt.projects.length, 1);

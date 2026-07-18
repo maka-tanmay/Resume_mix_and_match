@@ -7,9 +7,9 @@ const latexSource = fs.readFileSync(path.join(__dirname, "../js/latex.js"), "utf
 const context = { window: {} };
 vm.createContext(context);
 vm.runInContext(`${latexSource}
-globalThis.latexTestApi = { escapeLatex, sanitizeLatexText, generateStructuredLatex, generateStandaloneHtml, escapeHtml };`, context);
+globalThis.latexTestApi = { escapeLatex, sanitizeLatexText, generateStructuredLatex, generateStandaloneHtml, escapeHtml, estimateResumePages };`, context);
 
-const { escapeLatex, sanitizeLatexText, generateStructuredLatex, generateStandaloneHtml, escapeHtml } = context.latexTestApi;
+const { escapeLatex, sanitizeLatexText, generateStructuredLatex, generateStandaloneHtml, escapeHtml, estimateResumePages } = context.latexTestApi;
 
 // --- escaping ---
 assert.strictEqual(escapeLatex("100% & $5 #1_a"), "100\\% \\& \\$5 \\#1\\_a");
@@ -49,6 +49,8 @@ const latex = generateStructuredLatex(resume);
 assert(latex.includes("\\documentclass[letterpaper,11pt]{article}"));
 assert(latex.includes("\\input{glyphtounicode}"));
 assert(latex.includes("\\pdfgentounicode=1"));
+assert(latex.includes("\\hypersetup{pdftitle={Jane \\& Co Resume}, pdfauthor={Jane \\& Co}}"), "PDF metadata must be set from the candidate name, escaped");
+assert(latex.indexOf("\\hypersetup{") < latex.indexOf("\\begin{document}"), "metadata belongs in the preamble");
 assert(latex.includes("\\begin{document}"));
 assert(latex.includes("\\end{document}"));
 assert(latex.includes("\\resumeProjectHeading{\\textbf{Gitlytics} $|$ \\emph{Python, Flask}}{2024}"));
@@ -88,6 +90,17 @@ const reordered = generateStructuredLatex({ ...resume, sectionOrder: ["experienc
 assert(reordered.indexOf("\\section{Experience}") < reordered.indexOf("\\section{Education}"), "sectionOrder must reorder sections");
 assert(reordered.indexOf("\\section{Projects}") < reordered.indexOf("\\section{Education}"));
 assert(reordered.indexOf("\\section{Education}") < reordered.indexOf("\\section{Technical Skills}"));
+
+// --- page-fit estimate (UI hint) ---
+assert(estimateResumePages(resume) <= 1, "the small fixture must estimate as one page");
+const bloated = {
+    ...resume,
+    experience: Array.from({ length: 12 }, (_, i) => ({
+        title: `Role ${i}`, company: "Co", location: "", dates: "2024",
+        bullets: Array.from({ length: 4 }, () => "A long accomplishment bullet describing measurable impact across systems and teams in detail"),
+    })),
+};
+assert(estimateResumePages(bloated) > 1, "a bloated resume must estimate as more than one page");
 
 // --- HTML export mirrors the template ---
 const html = generateStandaloneHtml(resume);

@@ -26,7 +26,8 @@ The app runs entirely in the browser with no build tools required and can be dep
 - **Variants** – entry-like items (experience, projects, research, leadership) hold multiple wording variants; the selected variant supplies the bullets.
 - **Section reordering** – move whole sections (e.g. put Projects before Experience); the preview, LaTeX, and HTML exports all honor the order.
 - **Editable LaTeX loop** – the LaTeX tab shows the Jake's-template source for your current selection. Edit it and *Apply to Resume*: the source is parsed back into structured entries which replace the currently included items (unchecked items are kept).
-- **Exports** – copy LaTeX, download `.tex` / HTML / Word-compatible `.doc`, print to PDF, or **Open in Overleaf** to compile the real PDF.
+- **Exports** – copy LaTeX, download `.tex` / HTML / Word-compatible `.doc`, print to PDF, or **Open in Overleaf** to compile the real PDF. Files are named `Firstname_Lastname_Resume.*`.
+- **ATS polish** – exports are normalized for acceptance: bullets get consistent capitalization and terminal punctuation, date ranges render as `Mon YYYY – Mon YYYY`, skills are deduped, and the PDF carries `pdftitle`/`pdfauthor` metadata. A header chip estimates page count and warns when content likely exceeds one page.
 - **Editable header** – name, phone, email, LinkedIn, GitHub, and portfolio are editable directly in the resume preview.
 - **Supabase authentication** – sign in with Google (legacy `eyJ...` anon keys and new `sb_publishable_...` keys both supported).
 - **Local-only mode** – click *Continue without an account* to use the app with no Supabase project; data stays in browser storage.
