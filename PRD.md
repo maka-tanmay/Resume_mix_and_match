@@ -97,9 +97,11 @@ download `Name_Resume.pdf`" in under 60 seconds.*
       the selected template's print CSS; `.tex`/Overleaf stay Jake's.
 - [x] Deployed: https://resume-mix-and-match.vercel.app (guest flow + all five
       templates verified live).
-- [ ] Owner actions remaining: run the `profiles` SQL in the Supabase SQL Editor;
-      set Supabase Auth Site URL / Redirect URLs to the deployed URL (+ localhost
-      for dev); then verify a real Google and magic-link sign-in on production.
+- [x] Owner actions done: `profiles` SQL ran in the Supabase SQL Editor (table +
+      RLS policies verified via REST); Auth Site URL and Redirect URLs point at
+      https://resume-mix-and-match.vercel.app.
+- [ ] Owner action remaining: verify a real Google and magic-link sign-in on
+      production.
 
 *Acceptance:* switching templates re-renders the same content with no data loss;
 all templates print cleanly to one-page-capable PDF; `npm test` green including a
@@ -129,8 +131,15 @@ templates suite; browser-verified.
       review flow as file imports).
 - [ ] Owner action: `supabase functions deploy tailor-resume` (same
       ANTHROPIC_API_KEY secret as parse-resume).
-- [ ] Cover letter generated from library items + JD.
-- [ ] LinkedIn-PDF import preset.
+- [x] Cover letter code: `supabase/functions/cover-letter` (same pattern as
+      tailor-resume: structured outputs {coverLetter, subject}, JWT-gated, honest
+      no-fabrication prompt) + `js/coverLetter.js` + "Write cover letter" button
+      in the tailor panel with an editable result, Copy, and Download .txt.
+      Owner action: `supabase functions deploy cover-letter`.
+- [x] LinkedIn-PDF import preset: "Save profile to PDF" exports auto-detected
+      ("Page N of M" + linkedin.com/in), split into sidebar/main columns by x
+      geometry, parsed with LinkedIn's line patterns (multi-role companies,
+      durations, honors), re-emitted as generic resume lines; test-covered.
 - [ ] Typst or server-side PDF for true typography (replaces print-to-PDF).
 
 ### P2 — The business

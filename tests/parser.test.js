@@ -33,7 +33,10 @@ globalThis.parserTestApi = {
   parseLatexSource,
   parsePastedResumeText,
   generateStructuredLatex,
-  getSectionKey
+  getSectionKey,
+  isLinkedInExport,
+  transformLinkedInProfile,
+  parseResumeLines
 };`, context);
 
 const {
@@ -291,5 +294,83 @@ assert.strictEqual(pasted.structuredResume.experience.length, 2);
 assert.strictEqual(pasted.originalPreview.kind, "text");
 assert(pasted.rawText.includes("SAR compliance"));
 assert.throws(() => parsePastedResumeText("   "), /Paste some resume text/);
+
+// --- LinkedIn "Save profile to PDF" preset ---
+const { isLinkedInExport, transformLinkedInProfile, parseResumeLines } = context.parserTestApi;
+
+assert.strictEqual(
+    isLinkedInExport(normalizeTextLines("Jane Doe\nwww.linkedin.com/in/jane\nPage 1 of 2")),
+    true
+);
+assert.strictEqual(
+    isLinkedInExport(normalizeTextLines("Jane Doe\nlinkedin.com/in/jane\nExperience")),
+    false,
+    "a plain resume that mentions a LinkedIn URL is not a LinkedIn export"
+);
+
+const linkedInSidebar = [
+    "Contact",
+    "jane@example.com",
+    "www.linkedin.com/in/janedoe (LinkedIn)",
+    "Top Skills",
+    "Python",
+    "SQL",
+    "Data Analysis",
+    "Languages",
+    "English (Native or Bilingual)",
+    "Honors-Awards",
+    "Dean's List 2019",
+    "Hackathon Winner",
+];
+const linkedInMain = [
+    "Jane Doe",
+    "Data Engineer at Acme",
+    "San Francisco, California, United States",
+    "Summary",
+    "I build data pipelines and dashboards.",
+    "Experience",
+    "Acme Corp",
+    "3 years 2 months",
+    "Senior Data Engineer",
+    "January 2023 - Present (1 year 6 months)",
+    "San Francisco, California, United States",
+    "Built the ingestion platform processing 2B events daily.",
+    "Data Engineer",
+    "May 2021 - December 2022 (1 year 8 months)",
+    "Migrated the warehouse to BigQuery.",
+    "Beta Analytics",
+    "Data Analyst",
+    "June 2019 - April 2021 (1 year 11 months)",
+    "New York, New York, United States",
+    "Automated weekly reporting.",
+    "Education",
+    "State University",
+    "Bachelor's degree, Computer Science · (2015 - 2019)",
+    "Page 2 of 2",
+];
+
+const linkedInLines = transformLinkedInProfile(linkedInSidebar, linkedInMain);
+const linkedInParsed = parseResumeLines(normalizeTextLines(linkedInLines.join("\n"))).structuredResume;
+
+assert.strictEqual(linkedInParsed.basics.name, "Jane Doe");
+assert.strictEqual(linkedInParsed.basics.email, "jane@example.com");
+assert(linkedInParsed.basics.linkedin.includes("linkedin.com/in/janedoe"));
+assert.strictEqual(linkedInParsed.experience.length, 3, "two Acme roles + one Beta role");
+assert.strictEqual(linkedInParsed.experience[0].title, "Senior Data Engineer");
+assert.strictEqual(linkedInParsed.experience[0].company, "Acme Corp");
+assert.strictEqual(linkedInParsed.experience[0].dates, "January 2023 - Present");
+assert.strictEqual(linkedInParsed.experience[1].title, "Data Engineer");
+assert.strictEqual(linkedInParsed.experience[1].company, "Acme Corp", "second role inherits the company");
+assert.strictEqual(linkedInParsed.experience[2].company, "Beta Analytics");
+assert.strictEqual(linkedInParsed.experience[2].bullets.length, 1);
+assert.strictEqual(linkedInParsed.education.length, 1);
+assert.strictEqual(linkedInParsed.education[0].school, "State University");
+assert(linkedInParsed.education[0].degree.includes("Computer Science"));
+assert.strictEqual(linkedInParsed.education[0].dates, "2015 - 2019");
+const skillCategories = linkedInParsed.skills.map((skill) => skill.category);
+assert(skillCategories.includes("Top Skills"));
+assert(skillCategories.includes("Languages"));
+assert.strictEqual(linkedInParsed.leadership.length, 1, "honors become a leadership bullet entry");
+assert.strictEqual(linkedInParsed.leadership[0].bullets.length, 2);
 
 console.log("parser tests passed");

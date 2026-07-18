@@ -60,23 +60,16 @@ const getPdfItemGeometry = (item, pageNumber) => {
     };
 };
 
-const extractPdfLines = async (file) => {
-    if (!window.pdfjsLib) {
-        throw new Error("PDF parser failed to load. Refresh and try again.");
-    }
-
-    const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+// Row-groups geometry items into text lines, page by page. Reused by the
+// normal single-column path and by the LinkedIn preset's per-column passes.
+const groupPdfItemsIntoLines = (items) => {
     const lines = [];
+    const pageNumbers = [...new Set(items.map((item) => item.page))].sort((a, b) => a - b);
 
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-        const page = await pdf.getPage(pageNumber);
-        const content = await page.getTextContent();
-        const items = content.items
-            .map((item) => getPdfItemGeometry(item, pageNumber))
-            .filter((item) => item.text.trim());
-
+    pageNumbers.forEach((pageNumber) => {
+        const pageItems = items.filter((item) => item.page === pageNumber);
         const rows = [];
-        items.forEach((item) => {
+        pageItems.forEach((item) => {
             const row = rows.find((candidate) => Math.abs(candidate.y0 - item.y0) <= Math.max(2, item.fontSize * 0.35));
             if (row) {
                 row.items.push(item);
@@ -113,9 +106,231 @@ const extractPdfLines = async (file) => {
                     page: pageNumber,
                 });
             });
+    });
+
+    return lines;
+};
+
+const extractPdfLines = async (file) => {
+    if (!window.pdfjsLib) {
+        throw new Error("PDF parser failed to load. Refresh and try again.");
     }
 
-    return normalizeExtractedLines(lines);
+    const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const allItems = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const content = await page.getTextContent();
+        content.items
+            .map((item) => getPdfItemGeometry(item, pageNumber))
+            .filter((item) => item.text.trim())
+            .forEach((item) => allItems.push(item));
+    }
+
+    const lines = normalizeExtractedLines(groupPdfItemsIntoLines(allItems));
+    // LinkedIn "Save profile to PDF" exports are two-column with a known
+    // structure — rebuild them per column instead of parsing merged rows.
+    if (isLinkedInExport(lines)) {
+        return buildLinkedInProfileLines(allItems);
+    }
+    return lines;
+};
+
+// ---------------------------------------------------------------------------
+// LinkedIn "Save profile to PDF" preset (PRD P1). These exports have a fixed
+// shape: a narrow sidebar (Contact / Top Skills / Languages / Certifications /
+// Honors-Awards) beside a main column (Name / Headline / Summary / Experience /
+// Education), plus "Page N of M" footers. The two columns are separated by x
+// position, parsed with LinkedIn's known line patterns, and re-emitted as
+// plain resume-shaped lines for the generic section parser.
+// ---------------------------------------------------------------------------
+
+const isLinkedInExport = (lines) =>
+    lines.some((line) => /^Page \d+ of \d+$/i.test(line.text.trim())) &&
+    lines.some((line) => /linkedin\.com\/in\//i.test(line.text));
+
+const LINKEDIN_SIDEBAR_MAX_X = 180;
+const LINKEDIN_SIDEBAR_HEADER = /^(Contact|Top Skills|Languages|Certifications|Honors-Awards|Publications|Patents)$/i;
+const LINKEDIN_DATE_LINE = /^([A-Z][a-z]+ )?\d{4} ?[-–] ?(([A-Z][a-z]+ )?\d{4}|Present)( ?\(.*\))?$/;
+const LINKEDIN_DURATION_LINE = /^((\d+ years?)( \d+ months?)?|\d+ months?|less than a year)$/i;
+const LINKEDIN_PAGE_FOOTER = /^Page \d+ of \d+$/i;
+
+// ponytail: sidebar detection is page-1-only; a sidebar spilling onto page 2
+// (very long certification lists) mixes into the main column.
+const buildLinkedInProfileLines = (items) => {
+    const isSidebarItem = (item) => item.page === 1 && item.x0 < LINKEDIN_SIDEBAR_MAX_X;
+    const sidebarLines = normalizeExtractedLines(groupPdfItemsIntoLines(items.filter(isSidebarItem)))
+        .map((line) => line.text);
+    const mainLines = normalizeExtractedLines(groupPdfItemsIntoLines(items.filter((item) => !isSidebarItem(item))))
+        .map((line) => line.text);
+    return normalizeTextLines(transformLinkedInProfile(sidebarLines, mainLines).join("\n"));
+};
+
+const parseLinkedInSidebar = (sidebarLines) => {
+    const sections = {};
+    let currentKey = null;
+    sidebarLines
+        .filter((text) => !LINKEDIN_PAGE_FOOTER.test(text.trim()))
+        .forEach((text) => {
+            const trimmed = text.trim();
+            if (LINKEDIN_SIDEBAR_HEADER.test(trimmed)) {
+                currentKey = trimmed.toLowerCase();
+                sections[currentKey] = [];
+            } else if (currentKey) {
+                sections[currentKey].push(trimmed);
+            }
+        });
+    return sections;
+};
+
+const isLinkedInLocationLine = (text) =>
+    text.length <= 60 && !LINKEDIN_DATE_LINE.test(text) && !LINKEDIN_DURATION_LINE.test(text) &&
+    (text.includes(",") || text.split(/\s+/).length <= 4) && !/[.!?]$/.test(text);
+
+// Company names are short and don't end like sentences — the check that keeps
+// description lines from being mistaken for the next entry's company.
+const isLinkedInCompanyish = (text) =>
+    text.length <= 60 && !/[.!?]$/.test(text) && text.split(/\s+/).length <= 8;
+
+// A line is an entry boundary when it is a company/title line: the line after
+// it is a dates/company-total-duration line, or it is a company-shaped line
+// sitting directly above a "Title / dates" pair (company of the next entry).
+const isLinkedInEntryStart = (lines, index) => {
+    const next = lines[index + 1] || "";
+    const nextNext = lines[index + 2] || "";
+    if (LINKEDIN_DATE_LINE.test(next) || LINKEDIN_DURATION_LINE.test(next)) return true;
+    return LINKEDIN_DATE_LINE.test(nextNext) && !LINKEDIN_DATE_LINE.test(next) && isLinkedInCompanyish(lines[index] || "");
+};
+
+const parseLinkedInExperience = (expLines) => {
+    const entries = [];
+    let company = "";
+    let index = 0;
+
+    while (index < expLines.length) {
+        const text = expLines[index];
+        const next = expLines[index + 1] || "";
+        const nextNext = expLines[index + 2] || "";
+
+        if (LINKEDIN_DURATION_LINE.test(text)) {
+            index += 1;
+            continue;
+        }
+        // Company line in a multi-role block: "Company / <total duration> / Title / dates".
+        if (LINKEDIN_DURATION_LINE.test(next)) {
+            company = text;
+            index += 2;
+            continue;
+        }
+        // Company line directly above a title line: "Company / Title / dates".
+        if (LINKEDIN_DATE_LINE.test(nextNext) && !LINKEDIN_DATE_LINE.test(next) && isLinkedInCompanyish(text)) {
+            company = text;
+            index += 1;
+            continue;
+        }
+        if (LINKEDIN_DATE_LINE.test(next)) {
+            const dates = next.replace(/\s*\(.*\)\s*$/, "").trim();
+            let cursor = index + 2;
+            let location = "";
+            if (cursor < expLines.length && !isLinkedInEntryStart(expLines, cursor) && isLinkedInLocationLine(expLines[cursor])) {
+                location = expLines[cursor];
+                cursor += 1;
+            }
+            const bullets = [];
+            while (cursor < expLines.length && !isLinkedInEntryStart(expLines, cursor)) {
+                bullets.push(expLines[cursor]);
+                cursor += 1;
+            }
+            entries.push({ title: text, company, dates, location, bullets });
+            index = cursor;
+            continue;
+        }
+        index += 1;
+    }
+
+    return entries;
+};
+
+const parseLinkedInEducation = (eduLines) => {
+    const entries = [];
+    let index = 0;
+    while (index < eduLines.length) {
+        const school = eduLines[index];
+        const detail = eduLines[index + 1] || "";
+        // Degree lines look like "Bachelor's degree, Computer Science · (2016 - 2020)".
+        const isDetail = detail && !isLinkedInEntryStart(eduLines, index + 1) && (detail.includes("·") || /\(\s*\d{4}/.test(detail));
+        const dates = detail.match(/\(([^)]*\d{4}[^)]*)\)/)?.[1]?.trim() || "";
+        const degree = isDetail ? detail.replace(/·?\s*\([^)]*\)\s*$/, "").replace(/\s*·\s*$/, "").trim() : "";
+        entries.push({ school, degree, dates });
+        index += isDetail ? 2 : 1;
+    }
+    return entries;
+};
+
+// Re-emit the parsed profile as generic resume lines: "Title | dates" over
+// "Company | Location" entries, "Category: items" skills rows, bullet lists.
+const transformLinkedInProfile = (sidebarLines, mainLines) => {
+    const out = [];
+    const main = mainLines.filter((text) => !LINKEDIN_PAGE_FOOTER.test(text.trim()));
+    const sections = parseLinkedInSidebar(sidebarLines);
+
+    const contact = sections.contact || [];
+    const contactJoined = contact.join(" ");
+    const email = contactJoined.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+    const linkedinUrl = contactJoined.match(/(www\.)?linkedin\.com\/in\/[^\s|(]+/i)?.[0] || "";
+    const phone = contactJoined.match(/(\+?\d[\d\s().-]{7,}\d)/)?.[0] || "";
+
+    const name = main[0] || "";
+    const headline = main[1] || "";
+    out.push(name);
+    const contactLine = [phone, email, linkedinUrl].filter(Boolean).join(" | ");
+    if (contactLine) out.push(contactLine);
+    if (headline && !/^(Summary|Experience|Education)$/i.test(headline)) out.push(headline);
+
+    const experienceIndex = main.findIndex((text) => /^Experience$/i.test(text));
+    const educationIndex = main.findIndex((text, index) => /^Education$/i.test(text) && index > experienceIndex);
+
+    if (experienceIndex !== -1) {
+        const expEnd = educationIndex === -1 ? main.length : educationIndex;
+        const entries = parseLinkedInExperience(main.slice(experienceIndex + 1, expEnd));
+        if (entries.length) {
+            out.push("Experience");
+            entries.forEach((entry) => {
+                out.push(`${entry.title} | ${entry.dates}`);
+                const orgLine = [entry.company, entry.location].filter(Boolean).join(" | ");
+                if (orgLine) out.push(orgLine);
+                entry.bullets.forEach((bullet) => out.push(`• ${bullet}`));
+            });
+        }
+    }
+
+    if (educationIndex !== -1) {
+        const entries = parseLinkedInEducation(main.slice(educationIndex + 1));
+        if (entries.length) {
+            out.push("Education");
+            entries.forEach((entry) => {
+                out.push(entry.dates ? `${entry.school} | ${entry.dates}` : entry.school);
+                if (entry.degree) out.push(entry.degree);
+            });
+        }
+    }
+
+    const skillRows = [];
+    if ((sections["top skills"] || []).length) skillRows.push(`Top Skills: ${sections["top skills"].join(", ")}`);
+    if ((sections.languages || []).length) skillRows.push(`Languages: ${sections.languages.join(", ")}`);
+    if ((sections.certifications || []).length) skillRows.push(`Certifications: ${sections.certifications.join(", ")}`);
+    if (skillRows.length) {
+        out.push("Technical Skills");
+        skillRows.forEach((row) => out.push(row));
+    }
+
+    if ((sections["honors-awards"] || []).length) {
+        out.push("Leadership");
+        sections["honors-awards"].forEach((honor) => out.push(`• ${honor}`));
+    }
+
+    return out.filter(Boolean);
 };
 
 const extractDocLines = async (file) => {

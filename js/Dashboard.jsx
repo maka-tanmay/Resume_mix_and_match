@@ -433,6 +433,9 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const [tailoring, setTailoring] = useState(false);
     const [tailorResult, setTailorResult] = useState(null);
     const [tailorError, setTailorError] = useState("");
+    const [coverLetterText, setCoverLetterText] = useState("");
+    const [coverLetterSubject, setCoverLetterSubject] = useState("");
+    const [coverLetterLoading, setCoverLetterLoading] = useState(false);
     // Snapshot of (library, sectionOrder) taken right before tailoring applies,
     // so "Undo tailoring" can restore the user's manual selection.
     const preTailorRef = useRef(null);
@@ -616,6 +619,31 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
             preTailorRef.current = null;
         }
         setTailorResult(null);
+    };
+
+    const handleCoverLetter = async () => {
+        setCoverLetterLoading(true);
+        setTailorError("");
+        try {
+            const result = await generateCoverLetter(supabaseClient, jobDescription, personalInfo?.name || "", library);
+            setCoverLetterText(result.coverLetter);
+            setCoverLetterSubject(result.subject || "");
+            setTailorOpen(false);
+        } catch (error) {
+            setTailorError(error.message || "Cover letter generation failed.");
+        } finally {
+            setCoverLetterLoading(false);
+        }
+    };
+
+    const handleCopyCoverLetter = () => {
+        navigator.clipboard
+            .writeText(coverLetterSubject ? `Subject: ${coverLetterSubject}\n\n${coverLetterText}` : coverLetterText)
+            .catch((error) => console.error("Copy failed:", error));
+    };
+
+    const handleDownloadCoverLetter = () => {
+        downloadTextFile(`${exportBaseName()}_Cover_Letter.txt`, coverLetterText, "text/plain;charset=utf-8");
     };
 
     const dismissReview = () => setParseStats((stats) => (stats ? { ...stats, reviewedAt: new Date().toISOString() } : stats));
@@ -1047,14 +1075,53 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                                     <p className="text-[11px] text-app-textMuted">
                                         Picks the most relevant items and wording variants, reorders sections, and reports your keyword match. Your current selection can be restored with one click.
                                     </p>
-                                    <button
-                                        onClick={handleTailor}
-                                        disabled={tailoring}
-                                        className="shrink-0 bg-white text-black text-xs font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50"
-                                    >
-                                        {tailoring ? "Tailoring..." : "Tailor my resume"}
-                                    </button>
+                                    <div className="shrink-0 flex gap-2">
+                                        <button
+                                            onClick={handleCoverLetter}
+                                            disabled={coverLetterLoading || tailoring}
+                                            title="Write a cover letter for this job from your library — no invented facts"
+                                            className="border border-app-border text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-app-cardHover disabled:opacity-50"
+                                        >
+                                            {coverLetterLoading ? "Writing..." : "Write cover letter"}
+                                        </button>
+                                        <button
+                                            onClick={handleTailor}
+                                            disabled={tailoring || coverLetterLoading}
+                                            className="bg-white text-black text-xs font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                                        >
+                                            {tailoring ? "Tailoring..." : "Tailor my resume"}
+                                        </button>
+                                    </div>
                                 </div>
+                            </div>
+                        )}
+                        {coverLetterText && (
+                            <div className="w-full bg-app-card border border-app-border rounded-2xl p-4 space-y-3 text-xs">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="font-semibold text-white text-sm">Cover letter</h3>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={handleCopyCoverLetter} className="border border-app-border px-2.5 py-1 rounded-lg text-app-textMuted hover:text-white">
+                                            Copy
+                                        </button>
+                                        <button onClick={handleDownloadCoverLetter} className="border border-app-border px-2.5 py-1 rounded-lg text-app-textMuted hover:text-white">
+                                            Download .txt
+                                        </button>
+                                        <button onClick={() => setCoverLetterText("")} className="text-app-textMuted hover:text-white px-1">✕</button>
+                                    </div>
+                                </div>
+                                {coverLetterSubject && (
+                                    <p className="text-app-textMuted">
+                                        <span className="font-semibold text-white">Subject:</span> {coverLetterSubject}
+                                    </p>
+                                )}
+                                <textarea
+                                    value={coverLetterText}
+                                    onChange={(event) => setCoverLetterText(event.target.value)}
+                                    className="w-full h-72 bg-[#0a0a0a] border border-app-border rounded-xl p-3 text-xs text-white leading-relaxed focus:outline-none focus:border-app-textMuted"
+                                />
+                                <p className="text-[11px] text-app-textMuted">
+                                    Written only from facts in your library — edit freely before sending.
+                                </p>
                             </div>
                         )}
                         {tailorResult && (
