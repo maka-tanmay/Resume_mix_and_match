@@ -95,8 +95,11 @@ download `Name_Resume.pdf`" in under 60 seconds.*
       sidebar and rendered by every template.
 - [x] Template-aware exports: HTML and DOC use the selected template; Print-PDF uses
       the selected template's print CSS; `.tex`/Overleaf stay Jake's.
-- [ ] Owner actions: run `profiles` SQL; deploy to Vercel; add deployed URL to
-      Supabase auth redirect list.
+- [x] Deployed: https://resume-mix-and-match.vercel.app (guest flow + all five
+      templates verified live).
+- [ ] Owner actions remaining: run the `profiles` SQL in the Supabase SQL Editor;
+      set Supabase Auth Site URL / Redirect URLs to the deployed URL (+ localhost
+      for dev); then verify a real Google and magic-link sign-in on production.
 
 *Acceptance:* switching templates re-renders the same content with no data loss;
 all templates print cleanly to one-page-capable PDF; `npm test` green including a
