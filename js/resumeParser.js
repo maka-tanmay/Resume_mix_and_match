@@ -90,7 +90,17 @@ const extractPdfLines = async (file) => {
             .sort((a, b) => b.y0 - a.y0)
             .forEach((row) => {
                 const sortedItems = row.items.sort((a, b) => a.x0 - b.x0);
-                const text = sortedItems.map((item) => item.text).join(" ").replace(/\s+/g, " ").trim();
+                // A wide horizontal gap is a column boundary (company ⇤⇥ location,
+                // title ⇤⇥ dates) — mark it with "|" so splitLocation can split on it.
+                const text = sortedItems
+                    .map((item, itemIndex) => {
+                        if (!itemIndex) return item.text;
+                        const gap = item.x0 - sortedItems[itemIndex - 1].x1;
+                        return `${gap > 40 ? "| " : ""}${item.text}`;
+                    })
+                    .join(" ")
+                    .replace(/\s+/g, " ")
+                    .trim();
                 if (!text) return;
                 lines.push({
                     text,
@@ -224,11 +234,20 @@ const normalizeTextLines = (text) =>
             .filter((line) => line.text && line.text !== "•")
     );
 
+// Small-caps fonts extract with the leading capital as a separate glyph
+// ("E XPERIENCE", "T ANMAY M AKA") — rejoin, but only on all-caps lines so
+// normal sentence text is never touched.
+const rejoinSmallCaps = (text) =>
+    text === text.toUpperCase() ? text.replace(/\b([A-Z])\s+(?=[A-Z]{2,}\b)/g, "$1") : text;
+
 const normalizeExtractedLines = (lines) => {
     const normalized = lines
         .map((line) => ({
             ...line,
-            text: line.text.replace(/\s+/g, " ").replace(/[|]{2,}/g, "|").trim(),
+            // Zero-width characters (Google Docs / Word exports) aren't matched by \s.
+            text: rejoinSmallCaps(
+                line.text.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\s+/g, " ").replace(/[|]{2,}/g, "|").trim()
+            ),
         }))
         .filter((line) => line.text);
 
@@ -351,7 +370,9 @@ const removeDates = (text) => text.replace(DATE_PATTERN, "").replace(/\s*\|\s*$/
 const splitLocation = (text) => {
     const parts = text.split(/\s+\|\s+| {3,}/).map((part) => part.trim()).filter(Boolean);
     if (parts.length >= 2) return { main: parts[0], location: parts.slice(1).join(" | ") };
-    const locationMatch = text.match(/([A-Z][A-Za-z .]+,\s*[A-Z]{2})$/);
+    // "City, ST" / "City, USA" / "City, Country" at end of line — city capped at
+    // three words so it can't swallow the company name ahead of it.
+    const locationMatch = text.match(/((?:[A-Z][A-Za-z.]*\s){0,2}[A-Z][A-Za-z.]*,\s*(?:[A-Z]{2,3}|[A-Z][a-z]+(?:\s[A-Z][a-z]+)?))$/);
     if (locationMatch) return { main: text.replace(locationMatch[0], "").trim(), location: locationMatch[0] };
     return { main: text.trim(), location: "" };
 };
@@ -400,8 +421,21 @@ const parseExperienceLike = (lines, type) => {
     let index = 0;
 
     while (index < lines.length) {
-        while (index < lines.length && BULLET_PATTERN.test(lines[index].text)) index += 1;
-        if (index >= lines.length) break;
+        // Bullets with no header above them (e.g. a "Leadership and Accomplishments"
+        // section that is just a list) become a title-less entry instead of being dropped.
+        if (BULLET_PATTERN.test(lines[index].text)) {
+            const { bullets: orphanBullets, nextIndex: afterOrphans } = collectBullets(lines, index);
+            if (orphanBullets.length) {
+                entries.push({
+                    ...(type === "projects" ? { name: "", technologies: [] } : { title: "", company: "", organization: "", location: "" }),
+                    dates: "",
+                    bullets: orphanBullets,
+                    confidence: 0.5,
+                });
+            }
+            index = Math.max(afterOrphans, index + 1);
+            continue;
+        }
 
         if (type === "projects") {
             let headerText = lines[index].text;
@@ -438,11 +472,18 @@ const parseExperienceLike = (lines, type) => {
         const bulletStart = index + (hasSecondHeaderLine ? 2 : 1);
         const { bullets, nextIndex } = collectBullets(lines, bulletStart);
 
+        // Two layouts exist: "title+dates / company+location" (Jake's template) and
+        // "company+location / title+dates". The dates sit on the title line, so use
+        // them to decide which line is which.
+        const companyFirst = hasSecondHeaderLine && !extractDates(firstLine) && Boolean(extractDates(secondLine));
+        const titleSplit = companyFirst ? secondSplit : firstSplit;
+        const companySplit = companyFirst ? firstSplit : secondSplit;
+
         entries.push({
-            title: firstSplit.main,
-            company: secondSplit.main || "",
-            organization: secondSplit.main || "",
-            location: secondSplit.location || firstSplit.location,
+            title: titleSplit.main,
+            company: companySplit.main || "",
+            organization: companySplit.main || "",
+            location: companySplit.location || titleSplit.location,
             dates,
             bullets,
             confidence: bullets.length && dates ? 0.8 : 0.5,
@@ -456,10 +497,17 @@ const parseExperienceLike = (lines, type) => {
 
 const parseEducation = (lines) => {
     const entries = [];
-    for (let index = 0; index < lines.length; index += 2) {
-        const first = lines[index]?.text || "";
-        const second = lines[index + 1]?.text || "";
-        if (!first) continue;
+    let index = 0;
+    while (index < lines.length) {
+        // Detail bullets under a school aren't a new entry — skip them.
+        if (BULLET_PATTERN.test(lines[index].text)) {
+            index += 1;
+            continue;
+        }
+        const first = lines[index].text;
+        const secondLine = lines[index + 1];
+        const hasSecond = Boolean(secondLine) && !BULLET_PATTERN.test(secondLine.text);
+        const second = hasSecond ? secondLine.text : "";
         const firstSplit = splitLocation(removeDates(first));
         entries.push({
             school: firstSplit.main,
@@ -468,6 +516,7 @@ const parseEducation = (lines) => {
             dates: extractDates(first) || extractDates(second),
             confidence: second ? 0.75 : 0.45,
         });
+        index += hasSecond ? 2 : 1;
     }
     return entries;
 };
