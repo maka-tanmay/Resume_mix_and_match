@@ -237,8 +237,22 @@ const downloadTextFile = (filename, content, type) => {
     URL.revokeObjectURL(url);
 };
 
-const VariantsEditor = ({ item, onPatch }) => {
+const VariantsEditor = ({ item, onPatch, onAiVariant }) => {
     const variants = item.variants || [];
+    const [aiBusy, setAiBusy] = useState(false);
+    const [aiVariantError, setAiVariantError] = useState("");
+
+    const handleAiVariant = async () => {
+        setAiBusy(true);
+        setAiVariantError("");
+        try {
+            await onAiVariant();
+        } catch (error) {
+            setAiVariantError(error.message || "AI variant writing failed.");
+        } finally {
+            setAiBusy(false);
+        }
+    };
 
     const patchVariant = (variantId, patch) =>
         onPatch({ variants: variants.map((variant) => (variant.id === variantId ? { ...variant, ...patch } : variant)) });
@@ -264,10 +278,24 @@ const VariantsEditor = ({ item, onPatch }) => {
         <div className="space-y-2">
             <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold text-app-textMuted uppercase tracking-wider">Variants</span>
-                <button type="button" onClick={addVariant} className="text-xs text-app-text hover:text-white flex items-center gap-1">
-                    <IconPlus size={12} /> Add Variant
-                </button>
+                <div className="flex items-center gap-3">
+                    {onAiVariant && (
+                        <button
+                            type="button"
+                            onClick={handleAiVariant}
+                            disabled={aiBusy}
+                            title="AI rewords this entry's real bullets with a different emphasis — same facts, never invented ones. Targets the pasted job description when one is open."
+                            className="text-xs text-app-text hover:text-white disabled:opacity-50"
+                        >
+                            ✨ {aiBusy ? "Writing..." : "AI variant"}
+                        </button>
+                    )}
+                    <button type="button" onClick={addVariant} className="text-xs text-app-text hover:text-white flex items-center gap-1">
+                        <IconPlus size={12} /> Add Variant
+                    </button>
+                </div>
             </div>
+            {aiVariantError && <p className="text-[10px] text-red-400">{aiVariantError}</p>}
             {variants.map((variant) => (
                 <div
                     key={variant.id}
@@ -304,7 +332,7 @@ const VariantsEditor = ({ item, onPatch }) => {
     );
 };
 
-const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExpanded, onPatch, onRemove, onMove, onMoveToSection, onDragStart, onDragEnd, onDrop, dragging }) => {
+const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExpanded, onPatch, onRemove, onMove, onMoveToSection, onDragStart, onDragEnd, onDrop, dragging, onAiVariant }) => {
     const meta = SECTION_META[sectionKey];
     const summary = meta.summary(item) || "Untitled";
     const flagged = isFlaggedItem(item);
@@ -385,7 +413,7 @@ const LibraryItemCard = ({ sectionKey, item, index, total, expanded, onToggleExp
                             />
                         )
                     ))}
-                    {meta.hasVariants && <VariantsEditor item={item} onPatch={onPatch} />}
+                    {meta.hasVariants && <VariantsEditor item={item} onPatch={onPatch} onAiVariant={onAiVariant} />}
                     <div className="flex items-center justify-between">
                         {onMoveToSection ? (
                             <label className="text-xs text-app-textMuted flex items-center gap-1.5">
@@ -439,6 +467,7 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
     const [applications, setApplications] = useState(resumeState?.applications || []);
     const [applicationsOpen, setApplicationsOpen] = useState(false);
     const [newApplication, setNewApplication] = useState({ company: "", role: "" });
+    const [exportOpen, setExportOpen] = useState(false);
     // Snapshot of (library, sectionOrder) taken right before tailoring applies,
     // so "Undo tailoring" can restore the user's manual selection.
     const preTailorRef = useRef(null);
@@ -653,6 +682,18 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
 
     const handleDownloadCoverLetter = () => {
         downloadTextFile(`${exportBaseName()}_Cover_Letter.txt`, coverLetterText, "text/plain;charset=utf-8");
+    };
+
+    // AI wording variant for one item: same facts, different emphasis, targeted
+    // at the pasted JD when one is open. Appends as a new selected variant.
+    const handleAiVariant = async (sectionKey, item) => {
+        const result = await writeVariantWithAI(supabaseClient, item, jobDescription);
+        const variantId = createItemId("var");
+        patchItem(sectionKey, item.id, {
+            variants: [...(item.variants || []), { id: variantId, label: `✨ ${result.label}`.slice(0, 40), bullets: result.bullets.join("\n") }],
+            selectedVariantId: variantId,
+        });
+        trackEvent(supabaseClient, "ai_variant_done", { section: sectionKey, targeted: Boolean(jobDescription.trim()) });
     };
 
     // --- application tracker (PRD P2) ---
@@ -978,6 +1019,9 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                                                 handleItemDrop(sectionKey, item.id);
                                             }}
                                             dragging={draggedItem?.id === item.id}
+                                            onAiVariant={supabaseClient && SECTION_META[sectionKey].hasVariants
+                                                ? () => handleAiVariant(sectionKey, item)
+                                                : undefined}
                                         />
                                     ))}
                                     {items.length === 0 && (
@@ -1068,24 +1112,36 @@ const Dashboard = ({ user, resumeState, onResumeStateChange, onReplaceResume, on
                     >
                         📋 Applications{applications.length > 0 && ` (${applications.length})`}
                     </button>
-                    <button onClick={handleCopyLatex} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg transition-transform active:scale-95">
-                        Copy LaTeX
-                    </button>
-                    <button onClick={handleDownloadLatex} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
-                        .tex
-                    </button>
-                    <button onClick={handleDownloadHtml} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
-                        HTML
-                    </button>
-                    <button onClick={handleDownloadDoc} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
-                        DOC
-                    </button>
-                    <button onClick={handleDownloadPdf} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg">
-                        Print PDF
-                    </button>
-                    <button onClick={handleOpenOverleaf} className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg" title="Compile the LaTeX in Overleaf">
-                        Open in Overleaf
-                    </button>
+                    <div className="relative">
+                        <button
+                            onClick={() => setExportOpen(!exportOpen)}
+                            className="bg-app-card border border-app-border text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-app-cardHover shadow-lg"
+                        >
+                            ⬇ Export {exportOpen ? "▴" : "▾"}
+                        </button>
+                        {exportOpen && (
+                            <div className="absolute right-0 mt-2 w-56 bg-app-card border border-app-border rounded-xl shadow-2xl overflow-hidden z-20">
+                                {[
+                                    ["Print to PDF", handleDownloadPdf, "Uses the selected template's print styles"],
+                                    ["Open in Overleaf", handleOpenOverleaf, "Compile the real LaTeX PDF (Jake's)"],
+                                    ["Download .tex", handleDownloadLatex, "Jake's-template LaTeX source"],
+                                    ["Download HTML", handleDownloadHtml, "Selected template, self-contained"],
+                                    ["Download DOC", handleDownloadDoc, "Word-compatible"],
+                                    ["Copy LaTeX", handleCopyLatex, "To the clipboard"],
+                                ].map(([label, handler, hint]) => (
+                                    <button
+                                        key={label}
+                                        onClick={() => { setExportOpen(false); handler(); }}
+                                        title={hint}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-white hover:bg-app-cardHover border-b border-app-border/40 last:border-b-0"
+                                    >
+                                        {label}
+                                        <span className="block text-[10px] text-app-textMuted">{hint}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-12 pt-28 flex justify-center items-start">

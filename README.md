@@ -29,6 +29,8 @@ The app runs entirely in the browser with no build tools required and can be dep
 - **Tailor to Job** – paste a job description and the AI picks the most relevant items, chooses the best wording variant per entry, reorders sections, and returns an honest match report (score, matched/missing keywords, suggestions). One-click **Undo tailoring** restores your manual selection. Signed-in users; requires the `tailor-resume` Edge Function.
 - **Cover letter** – in the same panel, **Write cover letter** drafts a 3–4 paragraph letter (plus an email subject line) strictly from facts in your library — no invented employers, metrics, or skills. Edit it inline, copy, or download as `.txt`. Signed-in users; requires the `cover-letter` Edge Function.
 - **LinkedIn import** – "Save profile to PDF" exports from LinkedIn are detected automatically and parsed with a dedicated preset: sidebar (contact, top skills, languages, certifications, honors) and main column (experience with multi-role companies, education) land in the right library sections.
+- **AI variants** – every experience/project/research/leadership card has a ✨ *AI variant* button: it rewords that entry's real bullets with a different emphasis (targeting the pasted job description when one is open) and adds the result as a new wording variant. Same facts only — the prompt forbids invented metrics, tools, or scope. Signed-in users; requires the `write-variant` Edge Function.
+- **Landing page** – logged-out visitors see the product, not a login wall: live template previews rendered by the real template engine, the honesty features, and a no-signup guest mode.
 - **Application tracker** – the 📋 Applications panel records every application (company, role, JD, match score) together with a snapshot of the exact items, wording variants, section order, and template you sent. Update the status as it moves (applied → response → interview → offer/rejected), **Restore** any sent version with one click, and watch honest outcome analytics accumulate: overall response rate and per-template response attribution.
 - **Variants** – entry-like items (experience, projects, research, leadership) hold multiple wording variants; the selected variant supplies the bullets.
 - **Section reordering** – move whole sections (e.g. put Projects before Experience); the preview, LaTeX, and HTML exports all honor the order.
@@ -153,6 +155,7 @@ The **Fix parsing with AI** button calls a Supabase Edge Function that holds the
 supabase functions deploy parse-resume
 supabase functions deploy tailor-resume
 supabase functions deploy cover-letter
+supabase functions deploy write-variant
 supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 ```
 

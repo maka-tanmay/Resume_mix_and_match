@@ -153,6 +153,16 @@ templates suite; browser-verified.
 - [x] Outcome analytics v1: per-template response attribution and overall
       response rate computed from tracker snapshots, shown in the panel.
       (Variant/bullet-level attribution: needs volume, later.)
+- [x] Landing page: logged-out view is a real front door — hero, live template
+      strip rendered by the actual registry against the sample resume, honesty
+      features, guest-mode CTA. (Static SEO pages per template: later.)
+- [x] UI: topbar exports collapsed into one ⬇ Export menu (print-PDF, Overleaf,
+      .tex, HTML, DOC, copy) — Tailor and Applications stay first-class.
+- [x] AI at the variant level: ✨ AI variant on entry cards rewords that item's
+      real bullets with a different emphasis (JD-targeted when one is pasted)
+      and appends it as a new wording variant. `supabase/functions/write-variant`
+      + `js/variantWriter.js`; same no-fabrication contract as the other
+      functions. Owner action: `supabase functions deploy write-variant`.
 - [x] North-star instrumentation (PRD §1): `js/metrics.js` fire-and-forget
       events (`import_done`, `template_switch`, `export`, `tailor_done`,
       `cover_letter_done`, `application_tracked`, `application_status`) into
